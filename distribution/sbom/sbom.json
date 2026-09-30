@@ -1,0 +1,24 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "type": "application",
+      "name": "mterm",
+      "version": "1.0.0",
+      "author": "Yuki_Orita"
+    },
+    "timestamp": "2026-09-30T00:00:00Z"
+  },
+  "components": [
+    { "type": "platform", "name": "Debian", "version": "13.7 trixie arm64", "purl": "pkg:deb/debian/base@13.7?arch=arm64" },
+    { "type": "library", "name": "Android Gradle Plugin", "version": "9.1.1" },
+    { "type": "library", "name": "Kotlin", "version": "2.2.10 (built-in AGP Kotlin)" },
+    { "type": "library", "name": "Jetpack Compose BOM", "version": "2025.05.00" },
+    { "type": "library", "name": "Room", "version": "2.7.1" },
+    { "type": "library", "name": "DataStore", "version": "1.1.7" },
+    { "type": "library", "name": "NDK", "version": "28.2.13676358" },
+    { "type": "library", "name": "Node.js preset", "version": "24 LTS" }
+  ]
+}

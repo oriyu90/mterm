@@ -1,0 +1,36 @@
+# Gradle
+.gradle/
+build/
+local.properties
+*.iml
+
+# Android
+*.apk
+*.aab
+*.ap_
+*.dex
+captures/
+.externalNativeBuild/
+.cxx/
+*.hprof
+
+# Keystore (release keys live in common-rules-document private repo, never commit here)
+*.jks
+*.keystore
+my-upload-key.jks
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.code-workspace
+.vscode/
+
+# Node (website tooling lives in studio-rizi, not here)
+node_modules/
+
+# RootFS archives (fetched at runtime, not committed)
+*.tar.zst
+*.part

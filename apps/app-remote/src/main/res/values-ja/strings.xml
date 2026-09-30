@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MTerm Remote</string>
+    <string name="ssh_only">SSH のみ</string>
+    <string name="no_debian">Debian ダウンロードなし</string>
+    <string name="play_compatible">Play 対応版</string>
+    <string name="banner_remote">Play 対応 SSH エディション — Debian ダウンロードはありません</string>
+    <string name="btn_android_shell">Android シェルを新規作成</string>
+    <string name="btn_new_ssh">SSH を新規作成</string>
+    <string name="btn_storage">ストレージ</string>
+    <string name="btn_bridge">ブリッジ</string>
+    <string name="btn_diagnostics">診断</string>
+    <string name="btn_export">エクスポート（秘匿化済み）</string>
+    <string name="ssh_backend_later">SSH バックエンド（将来対応）</string>
+    <string name="status_device_runtime_required">端末上での実行が必要です</string>
+    <string name="title_sessions">セッション</string>
+    <string name="title_settings">設定</string>
+    <string name="title_diagnostics">診断</string>
+    <string name="title_storage">ストレージ</string>
+    <string name="title_bridge">ブリッジ</string>
+    <string name="sessions_empty">セッションはまだありません</string>
+    <string name="action_open">開く</string>
+    <string name="action_stop_all">すべて停止</string>
+    <string name="notif_sessions_running">ターミナルセッション実行中</string>
+    <string name="bridge_unavailable">ブリッジは端末上での実行が必要です</string>
+    <string name="pref_theme">テーマ</string>
+    <string name="pref_font_size">フォントサイズ</string>
+    <string name="pref_scrollback">スクロールバック行数</string>
+    <string name="pref_extra_keys">エクストラキー</string>
+    <string name="result_pass">合格</string>
+    <string name="result_fail">不合格</string>
+    <string name="result_skip">スキップ</string>
+    <string name="nav_home">ホーム</string>
+    <string name="nav_settings">設定</string>
+    <string name="nav_diagnostics">診断</string>
+    <string name="nav_storage">ストレージ</string>
+    <string name="storage_mirror">SAF ミラー</string>
+    <string name="storage_ssh_workspace">SSH ワークスペース</string>
+    <string name="ok">OK</string>
+</resources>

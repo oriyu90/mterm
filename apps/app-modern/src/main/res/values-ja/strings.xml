@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MTerm Modern</string>
+    <string name="experimental">実験的ビルド</string>
+    <string name="exec_broker">ExecBroker</string>
+    <string name="qualification">適格性確認</string>
+    <string name="banner_experimental">実験的 ExecBroker ビルド — 適格性確認が必要です（Gate C）</string>
+    <string name="btn_android_shell">Android シェルを新規作成</string>
+    <string name="btn_debian_proot">Debian を新規作成（PRoot）</string>
+    <string name="btn_exec_broker_test">ExecBroker テスト</string>
+    <string name="btn_root_chroot">Root Chroot</string>
+    <string name="btn_run_qualification">適格性確認を実行</string>
+    <string name="btn_export">エクスポート（秘匿化済み）</string>
+    <string name="status_unsupported">この端末では未対応です</string>
+    <string name="status_device_runtime_required">端末上での実行が必要です</string>
+    <string name="title_sessions">セッション</string>
+    <string name="title_settings">設定</string>
+    <string name="title_diagnostics">診断</string>
+    <string name="title_storage">ストレージ</string>
+    <string name="sessions_empty">セッションはまだありません</string>
+    <string name="action_open">開く</string>
+    <string name="action_stop_all">すべて停止</string>
+    <string name="notif_sessions_running">ターミナルセッション実行中</string>
+    <string name="pref_theme">テーマ</string>
+    <string name="pref_font_size">フォントサイズ</string>
+    <string name="pref_scrollback">スクロールバック行数</string>
+    <string name="pref_extra_keys">エクストラキー</string>
+    <string name="result_pass">合格</string>
+    <string name="result_fail">不合格</string>
+    <string name="result_skip">スキップ</string>
+    <string name="diag_app_data_exec">appDataExec</string>
+    <string name="diag_nested_exec">nestedExec</string>
+    <string name="nav_home">ホーム</string>
+    <string name="nav_settings">設定</string>
+    <string name="nav_diagnostics">診断</string>
+    <string name="nav_storage">ストレージ</string>
+    <string name="storage_mirror">SAF ミラー</string>
+    <string name="storage_debian_bind">Debian バインド（/mnt/shared）</string>
+    <string name="ok">OK</string>
+</resources>

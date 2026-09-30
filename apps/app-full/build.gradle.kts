@@ -1,0 +1,104 @@
+// app-full: Full Sideload MVP (targetSdk 28, minSdk 28, compileSdk 36).
+// AGP 9.0+ built-in Kotlin: do NOT apply org.jetbrains.kotlin.android.
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.legacy.kapt)
+}
+
+android {
+    namespace = "dev.studiorizi.mterm.full"
+    compileSdk = 36
+    // ndkVersion pending: uncomment once the NDK is installed locally.
+    // ndkVersion = "28.2.13676358"
+
+    defaultConfig {
+        applicationId = "dev.studiorizi.mterm.full"
+        minSdk = 28
+        targetSdk = 28
+        versionCode = 10000
+        versionName = "1.0.0"
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/mterm-upload-key.jks")
+            storePassword = System.getenv("STORE_PASSWORD")
+            keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
+            keyPassword = System.getenv("KEY_PASSWORD")
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            // Sign with the release keystore only when credentials are present.
+            if (System.getenv("STORE_PASSWORD") != null && System.getenv("KEY_PASSWORD") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+        debug {
+            // Local development: default debug keystore.
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+}
+
+dependencies {
+    // Core modules (safe design: UI reaches privileged backends only via use-cases).
+    implementation(project(":core:session-core"))
+    implementation(project(":core:terminal-emulator"))
+    implementation(project(":core:pty-native"))
+    implementation(project(":core:process-supervisor"))
+    implementation(project(":core:linux-core"))
+    implementation(project(":core:linux-proot"))
+    implementation(project(":core:linux-chroot"))
+    implementation(project(":core:rootfs-manager"))
+    implementation(project(":core:root-core"))
+    implementation(project(":core:storage-mirror"))
+    implementation(project(":core:android-bridge"))
+    implementation(project(":core:data"))
+    implementation(project(":core:diagnostics"))
+
+    implementation(libs.androidx.core.ktx)
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.core)
+    implementation(libs.androidx.compose.material.icons.extended)
+    implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.material3.windowsizeclass)
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.androidx.documentfile)
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.security.crypto)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.kotlinx.coroutines.test)
+
+    debugImplementation(libs.androidx.compose.ui.tooling)
+}

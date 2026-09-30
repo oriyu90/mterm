@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Platform base (Compose provides MaterialTheme at runtime). Avoids missing Material3 View-resources. -->
+    <style name="Theme.MTerm" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

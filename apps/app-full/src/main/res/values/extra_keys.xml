@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Default extra-keys row; user edits are stored in DataStore (MTermPrefs). -->
+    <string-array name="extra_keys_default">
+        <item>ESC</item>
+        <item>TAB</item>
+        <item>CTRL</item>
+        <item>ALT</item>
+        <item>LEFT</item>
+        <item>UP</item>
+        <item>DOWN</item>
+        <item>RIGHT</item>
+    </string-array>
+</resources>
