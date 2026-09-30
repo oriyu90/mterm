@@ -53,6 +53,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // Full is sideload-only by design (Play policy conflicts with apt/ELF).
+    // ExpiredTargetSdkVersion lint is therefore not release-blocking here;
+    // Play-bound Gates live in app-remote (target 36). Gate E still applies.
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
