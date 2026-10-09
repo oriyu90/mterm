@@ -45,4 +45,17 @@ class ChrootBackendTest {
             )
         }
     }
+
+    @Test
+    fun spawn_throwsTypedRootUnsupported() = runTest {
+        try {
+            backend().prepare(spec()).let { backend().spawn(it, 24, 80) }
+            assertTrue("expected SpawnException", false)
+        } catch (e: dev.studiorizi.mterm.core.session_core.SpawnException) {
+            assertEquals(
+                dev.studiorizi.mterm.core.session_core.SpawnFailure.ROOT_UNSUPPORTED,
+                e.failure,
+            )
+        }
+    }
 }

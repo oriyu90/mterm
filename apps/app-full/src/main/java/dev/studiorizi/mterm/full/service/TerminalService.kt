@@ -3,7 +3,6 @@ package dev.studiorizi.mterm.full.service
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -14,9 +13,9 @@ import androidx.core.content.ContextCompat
 import dev.studiorizi.mterm.core.linux_chroot.ChrootBackend
 import dev.studiorizi.mterm.core.linux_proot.ProotBackend
 import dev.studiorizi.mterm.core.process_supervisor.ProcessSupervisor
-import dev.studiorizi.mterm.core.rootfs_manager.RootfsManager
 import dev.studiorizi.mterm.core.session_core.SessionManager
 import dev.studiorizi.mterm.core.session_core.SessionMode
+import dev.studiorizi.mterm.core.terminal_session.TerminalSessionHost
 import dev.studiorizi.mterm.full.MainActivity
 import dev.studiorizi.mterm.full.R
 import dev.studiorizi.mterm.full.backend.AndroidShellBackend
@@ -27,12 +26,14 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import android.app.PendingIntent
 
 /**
  * Owns session lifetime across Activity recreation (plan section 10.1).
  *
- * The UI binds to read [SessionManager.sessions] and issues use-case calls
- * only; it never touches su/mount/proot or PTY fds directly. The service
+ * The service owns a single [TerminalSessionHost] (PTY processes + emulators);
+ * the UI binds to read [TerminalSessionHost.sessions] and issues use-case
+ * calls only; it never touches su/mount/proot or PTY fds directly. The service
  * runs in the foreground while sessions exist and stops itself when the
  * session map becomes empty.
  *
@@ -44,27 +45,28 @@ class TerminalService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    lateinit var sessionManager: SessionManager
+    lateinit var host: TerminalSessionHost
         private set
-    lateinit var supervisor: ProcessSupervisor
-        private set
+
+    val sessionManager: SessionManager
+        get() = host.manager
+    val supervisor: ProcessSupervisor
+        get() = host.supervisor
 
     private val binder = LocalBinder()
 
     inner class LocalBinder : Binder() {
-        fun getManager(): SessionManager = sessionManager
-        fun getSupervisor(): ProcessSupervisor = supervisor
+        fun getHost(): TerminalSessionHost = host
         fun getService(): TerminalService = this@TerminalService
     }
 
     override fun onCreate() {
         super.onCreate()
-        supervisor = ProcessSupervisor()
-        sessionManager = buildSessionManager()
+        host = buildHost()
         ensureChannel()
         // Stop the service once the last session exits.
         scope.launch {
-            sessionManager.sessions.collectLatest { sessions ->
+            host.sessions.collectLatest { sessions ->
                 updateNotification(sessions.size)
                 if (sessions.isEmpty()) {
                     stopForegroundCompat()
@@ -80,10 +82,15 @@ class TerminalService : Service() {
                 startForegroundCompat()
             }
             ACTION_STOP_ALL -> {
+                host.stopAll()
+                // The sessions collector stops the service once drained;
+                // force-stop as a fallback in case a reader is stuck.
                 scope.launch {
-                    sessionManager.stopAll()
-                    stopForegroundCompat()
-                    stopSelf()
+                    kotlinx.coroutines.delay(2500)
+                    if (host.sessions.value.isEmpty()) {
+                        stopForegroundCompat()
+                        stopSelf()
+                    }
                 }
                 return START_NOT_STICKY
             }
@@ -95,17 +102,18 @@ class TerminalService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onDestroy() {
+        host.shutdown()
         scope.cancel()
         super.onDestroy()
     }
 
-    private fun buildSessionManager(): SessionManager {
+    private fun buildHost(): TerminalSessionHost {
         val filesDir: File = filesDir
         val debianDir = File(filesDir, "linux/distributions/debian/current/rootfs")
         val bridgeDir = File(filesDir, "shared/bridge")
         val mirrorDir = File(filesDir, "shared/mirror")
         val prootBin = File(filesDir, "bin/proot")
-        return SessionManager(
+        val manager = SessionManager(
             mapOf(
                 SessionMode.ANDROID_SHELL to AndroidShellBackend(),
                 SessionMode.DEBIAN_PROOT to ProotBackend(
@@ -117,14 +125,10 @@ class TerminalService : Service() {
                 SessionMode.DEBIAN_CHROOT to ChrootBackend(rootfsDir = debianDir),
             ),
         )
-    }
-
-    @Suppress("unused")
-    private fun rootfsState(): String {
-        // Placeholder for the installer screen; real state comes from
-        // RootfsManager.ensureInstalled() on the device runtime.
-        val manager = RootfsManager(filesDir, ByteArray(32))
-        return manager.stagingDir().absolutePath
+        return TerminalSessionHost(
+            manager = manager,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+        )
     }
 
     private fun ensureChannel() {
@@ -145,12 +149,16 @@ class TerminalService : Service() {
 
     private fun startForegroundCompat() {
         ensureChannel()
-        startForeground(NOTIFICATION_ID, buildNotification(sessionManager.sessions.value.size))
+        startForeground(NOTIFICATION_ID, buildNotification(host.sessions.value.size))
     }
 
     private fun updateNotification(count: Int) {
         val manager = getSystemService(NotificationManager::class.java) ?: return
-        manager.notify(NOTIFICATION_ID, buildNotification(count))
+        try {
+            manager.notify(NOTIFICATION_ID, buildNotification(count))
+        } catch (_: SecurityException) {
+            // POST_NOTIFICATIONS denied: FGS keeps running; UI shows status.
+        }
     }
 
     private fun stopForegroundCompat() {

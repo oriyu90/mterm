@@ -3,22 +3,22 @@
 > 保存先ルール: `oriyu90/mterm` の `main` 直下 `mterm.md` に集約（common rules ルール6）。
 > 設計正本は `docs/IMPLEMENTATION_PLAN.md`（実装計画書 v1.0 / 2026-09-29、572行）。
 > 元 `.docx` は `mterm.docx` に保存。評価報告は `docs/DESIGN_EVALUATION.md`。
-> 最終更新: 2026-09-30 / v1.0.0 / 実装者: OpenCode (Muse Spark)
+> 最終更新: 2026-10-09 / v1.0.1 / 実装者: OpenCode (Muse Spark)
 
 ## 1. 署名鍵（更新時はここから持ってくること）
 
-- 一次保管: private リポジトリ `oriyu90/common-rules-document` の `keystores/mterm-upload-key.jks`
+- 一次保管: private リポジトリ `oriyu90/common-rules-document` の `keystores/mterm-upload-key.jks`（push 済み、sync 確認済み）
 - alias: `upload` / STORE_PASSWORD・KEY_PASSWORD 共通: 共通ルール文書 `common rules.md` ルール7 のパスワード（`Youu2911yuki.`）
 - 本リポジトリに `.jks` を置かない（`.gitignore` で除外済み）。CI で署名する場合も `RELEASE_KEYSTORE_BASE64` は上記 `.jks` から生成する
-- リリースビルド直後に必ず `keystores/sync-keystore.sh mterm [コピー元.jks]` を実行し push 済みにすること（ルール7）
-- 今回 v1.0.0: 下記「リリース手順」で鍵を新規生成→ common-rules へ sync 予定。生成後に本節の「未sync」表記を消すこと
+- リリースビルド直後に必ず `keystores/sync-keystore.sh mterm [コピー元.jks]` を実行し push 済みにすること（ルール7）。v1.0.0 で新規生成→ sync 済み。v1.0.1 では既存鍵を再利用し、新規生成しないこと
+- rootfs 署名鍵（Ed25519）: `keystores/mterm-rootfs-ed25519.private.pem`（秘密鍵・非公開）+ `mterm-rootfs-ed25519.public.b64`（公開鍵）。アプリ埋め込みは `core/rootfs-manager` の `RootfsKeys.PUBLIC_KEY_BASE64` のみ。署名は `scripts/sign-rootfs.py --manifest ... --key <private.pem>`
 
 ## 2. リリース構成
 
-- `apps/app-full`（target 28 / sideload MVP）: `mterm-full-1.0.0.apk` を GitHub Release `v1.0.0` に添付
-- `apps/app-modern`（target 36 / experimental）: `mterm-modern-1.0.0.apk` を同 Release に添付（Gate C 未通過の旨を明記）
-- `apps/app-remote`（target 36 / Play-compatible）: `mterm-remote-1.0.0.apk` を同 Release に添付（将来 Play 提出用、Debian loader 非含有）
-- versionCode: 10000 / versionName: 1.0.0（3 app 共通）。次回は計画書 §14.3 の分離更新に従う（app / rootfs base / apt / AI CLI を混ぜない）
+- `apps/app-full`（target 28 / sideload MVP）: `mterm-full-1.0.1.apk` を GitHub Release `v1.0.1` に添付
+- `apps/app-modern`（target 36 / experimental）: `mterm-modern-1.0.1.apk` を同 Release に添付（Gate C 未通過の旨を明記）
+- `apps/app-remote`（target 36 / Play-compatible）: `mterm-remote-1.0.1.apk` を同 Release に添付（将来 Play 提出用、Debian loader 非含有）
+- versionCode: 10001 / versionName: 1.0.1（3 app 共通）。次回は計画書 §14.3 の分離更新に従う（app / rootfs base / apt / AI CLI を混ぜない）
 - 紹介サイト正規URL: `https://studio-rizi.pages.dev/projects/mterm/`（4言語 `ja/en/zh/pt`、hreflang・canonical・sitemap は studio-rizi 側で管理）
 
 ## 3. 次回更新時のチェックリスト（ここから始めること）
@@ -33,13 +33,25 @@
 - [ ] `npm run build && npm run validate && npm run count-files` を studio-rizi 側で実行（紹介サイト更新時）
 - [ ] Gate A–E（`docs/DESIGN_EVALUATION.md` §6）が全 PASS するまで公開しない。特に Samsung Android 16 の PRoot 性能/OEM 差は必須ゲート
 
-## 4. 既知の制限・実機ゲート残（v1.0.0 時点）
+## 4. 既知の制限・実機ゲート残（v1.0.1 時点）
 
-- device runtime 要項目（PTY spawn / PRoot nested exec / apt / vite / Claude E2E / SAF 実機 / FGS 実機）は CI なし。本環境は emulator なしのため `UNVERIFIED` のまま。実機 matrix: API29 / 31 / 33 / 35(16KB) / 36 Pixel / 36 Samsung（必須）/ 37 lane
+- Android 16 実機（LENOVO TB710FU / API 36 / arm64）で検証済み: Android shell の PTY 起動・プロンプト描画・入力→実行→出力・終了コード・終了フロー・FGS 停止・回転維持・Debian ゲート文・診断実測（PTY/app-data exec/nested exec PASS）・日英 UI。詳細は `docs/DEVICE_ANALYSIS_AND_FIX_PLAN.md`
+- Android 11 実機（Sony SOV40 / API 30）はパターンロック中のため未検証（次回）。同一コードパス（target 28）のためリスクは低いが、Gate A 完了には実機確認が必要
+- Debian rootfs / proot バイナリの実配布は未実施（ホスティング未定）。コードパス・検証ロジック・署名鍵（Ed25519）は用意済み。未導入端末ではゲート表示
+- AndroidBridge UDS サーバ本体と SAF↔mirror 実 I/O 同期は未実装（v1.0.2 以降の候補）。CLI と protocol codec は用意済み
+
+## 5. ビルド環境の注意（引き継ぎ）
+
 - NDK は `~/Library/Android/sdk/ndk/28.2.13676358` に手動コピーで復旧した経緯あり（sdkmanager zip エラー）。次回クリーン環境では `sdkmanager --sdk_root=... "ndk;28.2.13676358" "cmake;3.22.1"` を再実行し `source.properties` を確認
 - `core/data` は Room 2.7.1（Kotlin 2.2 対応）。2.6.x に戻さないこと
 - 全 app テーマは `android:Theme.Material.Light.NoActionBar` 基底（Compose BOM のみでは View 用 Material3 テーマが解決できないため）。`Theme.Material3.*` に戻さないこと
 - `core/pty-native` の `externalNativeBuild` と `ndkVersion` をコメントアウトしないこと（ビルドに必須）
+- ターミナル描画は `Text` 行レンダリング（`TerminalView.kt`）。`Canvas#drawText` は初回 0 サイズでクラッシュするため使わないこと。不可視 IME フィールドは `clearAndSetSemantics` + バッファ即時リセット（アクセシビリティ漏洩防止）
+
+## 6. 変更履歴
+
+- 2026-10-09 v1.0.1: 実機対応版。PTY 配線（`core/pty-runtime` + `core/terminal-session` 新設、`TerminalService` が host 所有、`TerminalView` で描画・入力・リサイズ）、Android shell 実機動作（Android 16 で検証）、診断の実測化（PTY/app-data exec/nested exec probe）、Debian/root の型付きゲート、`localeConfig`（日英 per-app）、rootfs Ed25519 署名鍵の発行・保管・公開鍵埋め込み・署名スクリプト。115 unit tests PASS、日英 parity（full 106 / modern 37 / remote 37）、16KB 再確認
+- 2026-09-30 v1.0.0: 初回実装（P0–P3 + P4基盤）。101 unit tests PASS、assembleDebug 3 APK、16KB 23 .so PASS、日英 parity（full 94 / modern 37 / remote 37）、remote loader 分離 PASS。設計評価は `docs/DESIGN_EVALUATION.md`
 
 ## 5. 変更履歴
 

@@ -56,6 +56,9 @@ object PtyNative {
 
     external fun nativeWrite(handle: Long, data: ByteArray, off: Int, len: Int): Int
 
+    /** Child pid for the session leader, or -1 for an unknown handle. */
+    external fun nativePid(handle: Long): Int
+
     external fun nativeResize(handle: Long, rows: Int, columns: Int): Int
 
     external fun nativeSignal(handle: Long, signal: Int): Int

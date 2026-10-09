@@ -96,6 +96,7 @@ class SessionModelTest {
     private class FakeBackend : ExecutionBackend {
         override val mode = SessionMode.ANDROID_SHELL
         val proc = FakeProcess()
+        val pty = FakePty(id = 7L)
         var stopped: UnixSignal? = null
 
         override suspend fun prepare(spec: SessionSpec): PreparedSession =
@@ -106,7 +107,8 @@ class SessionModelTest {
                 cwd = spec.cwd,
             )
 
-        override suspend fun spawn(prepared: PreparedSession, pty: PtyHandle): ProcessHandle = proc
+        override suspend fun spawn(prepared: PreparedSession, rows: Int, cols: Int): SpawnedProcess =
+            SpawnedProcess(pty = pty, process = proc)
 
         override suspend fun stop(handle: ProcessHandle, signal: UnixSignal) {
             stopped = signal
@@ -123,20 +125,19 @@ class SessionModelTest {
         // Duplicate id must fail.
         assertTrue(manager.create(spec).isFailure)
 
-        val pty = FakePty()
-        assertTrue(manager.start("s1", pty).isSuccess)
+        assertTrue(manager.start("s1", 24, 80).isSuccess)
         assertEquals(SessionState.RUNNING, manager.get("s1")!!.state.value)
 
         assertTrue(manager.stop("s1").isSuccess)
         assertEquals(SessionState.EXITED, manager.get("s1")!!.state.value)
         assertEquals(UnixSignal.SIGTERM, backend.stopped)
-        assertTrue(pty.closed)
+        assertTrue(backend.pty.closed)
     }
 
     @Test
     fun `manager start unknown session fails`() = runBlocking {
         val manager = SessionManager(emptyMap())
-        assertTrue(manager.start("missing", FakePty()).isFailure)
+        assertTrue(manager.start("missing", 24, 80).isFailure)
     }
 
     @Test
@@ -150,10 +151,18 @@ class SessionModelTest {
     fun `withPty runs block after start`() = runBlocking {
         val manager = SessionManager(mapOf(SessionMode.ANDROID_SHELL to FakeBackend()))
         manager.create(validSpec())
-        val pty = FakePty(id = 7L)
-        manager.start("s1", pty)
+        manager.start("s1", 24, 80)
         val result = manager.withPty("s1") { handle -> handle.id }
         assertTrue(result.isSuccess)
         assertEquals(7L, result.getOrNull())
+    }
+
+    @Test
+    fun `remove drops the session from the live map`() = runBlocking {
+        val manager = SessionManager(mapOf(SessionMode.ANDROID_SHELL to FakeBackend()))
+        manager.create(validSpec())
+        manager.remove("s1")
+        assertEquals(null, manager.get("s1"))
+        assertTrue(manager.sessions.value.isEmpty())
     }
 }

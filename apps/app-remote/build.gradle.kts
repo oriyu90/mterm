@@ -12,8 +12,8 @@ android {
         applicationId = "dev.studiorizi.mterm.remote"
         minSdk = 29
         targetSdk = 36
-        versionCode = 10000
-        versionName = "1.0.0"
+        versionCode = 10001
+        versionName = "1.0.1"
     }
 
     // ndkVersion pending

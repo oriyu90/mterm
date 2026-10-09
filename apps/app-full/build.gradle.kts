@@ -17,8 +17,8 @@ android {
         applicationId = "dev.studiorizi.mterm.full"
         minSdk = 28
         targetSdk = 28
-        versionCode = 10000
-        versionName = "1.0.0"
+        versionCode = 10001
+        versionName = "1.0.1"
     }
 
     signingConfigs {
@@ -72,6 +72,8 @@ dependencies {
     implementation(project(":core:session-core"))
     implementation(project(":core:terminal-emulator"))
     implementation(project(":core:pty-native"))
+    implementation(project(":core:pty-runtime"))
+    implementation(project(":core:terminal-session"))
     implementation(project(":core:process-supervisor"))
     implementation(project(":core:linux-core"))
     implementation(project(":core:linux-proot"))

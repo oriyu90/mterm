@@ -12,6 +12,7 @@
         android:name=".MTermApp"
         android:allowBackup="true"
         android:supportsRtl="true"
+        android:localeConfig="@xml/locales_config"
         android:theme="@style/Theme.MTerm">
 
         <activity

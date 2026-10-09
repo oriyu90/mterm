@@ -3,9 +3,11 @@ package dev.studiorizi.mterm.core.linux_chroot
 import dev.studiorizi.mterm.core.session_core.ExecutionBackend
 import dev.studiorizi.mterm.core.session_core.PreparedSession
 import dev.studiorizi.mterm.core.session_core.ProcessHandle
-import dev.studiorizi.mterm.core.session_core.PtyHandle
 import dev.studiorizi.mterm.core.session_core.SessionMode
 import dev.studiorizi.mterm.core.session_core.SessionSpec
+import dev.studiorizi.mterm.core.session_core.SpawnException
+import dev.studiorizi.mterm.core.session_core.SpawnFailure
+import dev.studiorizi.mterm.core.session_core.SpawnedProcess
 import dev.studiorizi.mterm.core.session_core.UnixSignal
 import java.io.File
 
@@ -56,14 +58,16 @@ class ChrootBackend(
         )
     }
 
-    override suspend fun spawn(prepared: PreparedSession, pty: PtyHandle): ProcessHandle {
-        throw UnsupportedOperationException(
+    override suspend fun spawn(prepared: PreparedSession, rows: Int, cols: Int): SpawnedProcess {
+        throw SpawnException(
+            SpawnFailure.ROOT_UNSUPPORTED,
             "chroot spawn requires root device runtime with private mount namespace",
         )
     }
 
     override suspend fun stop(handle: ProcessHandle, signal: UnixSignal) {
-        throw UnsupportedOperationException(
+        throw SpawnException(
+            SpawnFailure.ROOT_UNSUPPORTED,
             "chroot spawn requires root device runtime with private mount namespace",
         )
     }

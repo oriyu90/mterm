@@ -672,6 +672,25 @@ class TerminalEmulator(
     @Synchronized
     fun scrollbackSize(): Int = scrollback.size
 
+    /**
+     * Copy of scrollback line [index] (0 = oldest) as cells, or null when out
+     * of range. Used by the renderer to show colors while scrolled up.
+     */
+    @Synchronized
+    fun getScrollbackCells(index: Int): Array<Cell>? {
+        if (index !in 0 until scrollback.size) return null
+        val line = scrollback[index]
+        return Array(line.size) { line[it].copy() }
+    }
+
+    /** Copy of the active screen row [r] as cells, or null when out of range. */
+    @Synchronized
+    fun getRowCells(r: Int): Array<Cell>? {
+        if (r !in 0 until rows) return null
+        val line = screen[r]
+        return Array(line.size) { line[it].copy() }
+    }
+
     /** Copy of the cell at ([row], [col]), or null when out of range. */
     @Synchronized
     fun getCell(row: Int, col: Int): Cell? {

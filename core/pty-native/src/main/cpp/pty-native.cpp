@@ -252,6 +252,15 @@ Java_dev_studiorizi_mterm_core_pty_1native_PtyNative_nativeWrite(JNIEnv* env, jo
 }
 
 JNIEXPORT jint JNICALL
+Java_dev_studiorizi_mterm_core_pty_1native_PtyNative_nativePid(JNIEnv* env, jobject /*thiz*/,
+                                                               jlong handle) {
+    (void)env;
+    Session s;
+    if (!LookupSession(handle, &s)) return -1;
+    return static_cast<jint>(s.pid);
+}
+
+JNIEXPORT jint JNICALL
 Java_dev_studiorizi_mterm_core_pty_1native_PtyNative_nativeResize(JNIEnv* env, jobject /*thiz*/,
                                                                   jlong handle, jint rows,
                                                                   jint columns) {

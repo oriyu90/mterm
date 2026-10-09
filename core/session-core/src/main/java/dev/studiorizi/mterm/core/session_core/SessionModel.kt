@@ -73,12 +73,45 @@ data class PreparedSession(
     }
 }
 
-/** Opaque PTY endpoint. Implemented by the pty-native layer; UI never touches fds. */
+/**
+ * Opaque PTY endpoint. Implemented by the pty-native layer; UI never touches fds.
+ *
+ * [read]/[write] carry default unsupported implementations so non-native
+ * handles (fakes, future transports) remain source-compatible.
+ */
 interface PtyHandle {
     val id: Long
+
+    /** Reads up to `buffer.size` bytes. Returns >0 count, or -1 on EOF/error. */
+    fun read(buffer: ByteArray): Int = -1
+
+    /** Writes `data[off, off+len)`. Returns bytes written, or -1 on error. */
+    fun write(data: ByteArray, off: Int, len: Int): Int = -1
+
     fun resize(rows: Int, cols: Int)
     fun close()
 }
+
+/** Reason a backend could not spawn, mapped to a localized UI message. */
+enum class SpawnFailure {
+    PTY_UNAVAILABLE,
+    PROOT_MISSING,
+    ROOTFS_MISSING,
+    ROOT_UNSUPPORTED,
+    BACKEND_UNSUPPORTED,
+}
+
+/** Typed spawn failure; never a bare generic exception across the UI boundary. */
+class SpawnException(
+    val failure: SpawnFailure,
+    message: String? = null,
+) : Exception(message ?: failure.name)
+
+/** Result of a successful [ExecutionBackend.spawn]: the PTY plus its child. */
+data class SpawnedProcess(
+    val pty: PtyHandle,
+    val process: ProcessHandle,
+)
 
 /** Opaque child process endpoint. wait() reaps via waitpid in the native layer. */
 interface ProcessHandle {
@@ -91,8 +124,16 @@ interface ProcessHandle {
 /** Backend contract shared by Android shell / PRoot / chroot / SSH. */
 interface ExecutionBackend {
     val mode: SessionMode
+
     suspend fun prepare(spec: SessionSpec): PreparedSession
-    suspend fun spawn(prepared: PreparedSession, pty: PtyHandle): ProcessHandle
+
+    /**
+     * Spawns the prepared session on a fresh PTY sized [rows] x [cols].
+     * Native backends return a [SpawnedProcess]; unsupported ones throw
+     * [SpawnException] with a specific [SpawnFailure].
+     */
+    suspend fun spawn(prepared: PreparedSession, rows: Int, cols: Int): SpawnedProcess
+
     suspend fun stop(handle: ProcessHandle, signal: UnixSignal = UnixSignal.SIGTERM)
 }
 
@@ -149,7 +190,7 @@ class SessionManager(
         }
     }
 
-    suspend fun start(sessionId: String, pty: PtyHandle): Result<Unit> {
+    suspend fun start(sessionId: String, rows: Int, cols: Int): Result<Unit> {
         val runtime = _sessions.value[sessionId]
             ?: return Result.failure(NoSuchElementException("Unknown session: $sessionId"))
         val backend = backends[runtime.spec.mode]
@@ -157,17 +198,32 @@ class SessionManager(
         runtime.state.value = SessionState.STARTING
         return try {
             val prepared = backend.prepare(runtime.spec)
-            val process = backend.spawn(prepared, pty)
+            val spawned = backend.spawn(prepared, rows, cols)
             _sessions.update { current ->
-                current + (sessionId to runtime.copy(process = process, pty = pty))
+                current + (sessionId to runtime.copy(process = spawned.process, pty = spawned.pty))
             }
             runtime.state.value = SessionState.RUNNING
             Result.success(Unit)
         } catch (t: Throwable) {
             runtime.state.value = SessionState.FAILED
-            safeClose(pty)
             Result.failure(t)
         }
+    }
+
+    /** Marks a session EXITED (reader loop / explicit stop). Never throws. */
+    fun markExited(sessionId: String) {
+        _sessions.value[sessionId]?.state?.value = SessionState.EXITED
+    }
+
+    /** Marks a session FAILED (unrecoverable I/O error). Never throws. */
+    fun markFailed(sessionId: String) {
+        _sessions.value[sessionId]?.state?.value = SessionState.FAILED
+    }
+
+    /** Removes a finished session so the live map (and FGS) can drain to empty. */
+    fun remove(sessionId: String) {
+        _sessions.update { it - sessionId }
+        ptyMutexes.remove(sessionId)
     }
 
     suspend fun stop(sessionId: String, signal: UnixSignal = UnixSignal.SIGTERM): Result<Unit> {

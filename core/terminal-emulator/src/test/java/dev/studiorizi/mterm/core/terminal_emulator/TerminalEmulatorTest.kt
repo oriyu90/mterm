@@ -245,4 +245,20 @@ class TerminalEmulatorTest {
         assertEquals("", t.getScrollbackLine(0))
         assertEquals(null, t.getCell(5, 5))
     }
+
+    @Test
+    fun `row and scrollback cell snapshots carry colors`() {
+        val t = TerminalEmulator(4, 20, 100)
+        t.write("\u001B[31mred\u001B[0m\n".bytes())
+        val cells = t.getRowCells(0)!!
+        assertEquals('r'.code.toChar(), cells[0].ch)
+        assertEquals(1, cells[0].fg)
+        assertEquals(null, t.getRowCells(99))
+        // Scroll the line into scrollback, then read it back with colors.
+        repeat(4) { t.write("fill $it\n".bytes()) }
+        assertTrue(t.scrollbackSize() > 0)
+        val back = t.getScrollbackCells(0)!!
+        assertTrue(back.any { it.ch == 'r' && it.fg == 1 })
+        assertEquals(null, t.getScrollbackCells(9999))
+    }
 }

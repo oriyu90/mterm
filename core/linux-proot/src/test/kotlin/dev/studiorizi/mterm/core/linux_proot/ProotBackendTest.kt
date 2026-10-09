@@ -56,4 +56,23 @@ class ProotBackendTest {
             )
         }
     }
+
+    @Test
+    fun spawn_missingProotThrowsTypedFailure() = runTest {
+        val missing = ProotBackend(
+            rootfsDir = java.io.File("/nonexistent-rootfs-xyz"),
+            bridgeDir = java.io.File("/tmp"),
+            mirrorDir = java.io.File("/tmp"),
+            prootBin = java.io.File("/nonexistent-proot-xyz"),
+        )
+        try {
+            missing.spawn(missing.prepare(spec()), 24, 80)
+            assertTrue("expected SpawnException", false)
+        } catch (e: dev.studiorizi.mterm.core.session_core.SpawnException) {
+            assertTrue(
+                e.failure == dev.studiorizi.mterm.core.session_core.SpawnFailure.PROOT_MISSING ||
+                    e.failure == dev.studiorizi.mterm.core.session_core.SpawnFailure.ROOTFS_MISSING,
+            )
+        }
+    }
 }

@@ -4,6 +4,8 @@
 対象: `oriyu90/mterm` v1.0.0（Full / Modern / Remote の3 app module + 13 core modules）
 検証環境: macOS arm64 / JDK21 (Microsoft 21.0.9) / Gradle 9.5.1 / AGP 9.1.1 / NDK 28.2.13676358 / CMake 3.22.1 / compileSdk 36
 
+> 追記 2026-10-09（v1.0.1）: 実機検証で発覚した未配線（§7）を修正。詳細は `docs/DEVICE_ANALYSIS_AND_FIX_PLAN.md` §7 の検証記録を参照。
+
 ## 1. 設計評価（計画書 §2 の判断を実装で確認）
 
 | 項目 | 計画判断 | 実装結果 | 判定 |
@@ -66,3 +68,17 @@
 - Gate C: ExecBroker が 10/12/15/16 + Pixel/Samsung + 16KB で成立するまで modern を昇格しない
 - Gate D: private namespace 不可端末では Root ボタンを出さない（実装済み gate を実機で確認）
 - Gate E: secret redaction / license / signature / 16KB / process stress が全 PASS するまで公開しない（本報告で CI 可能な項目は PASS、実機項目は `mterm.md` へ）
+
+## 7. v1.0.1 実機検証後の訂正（2026-10-09 / Android 16 LENOVO TB710FU）
+
+v1.0.0 の本報告には「実装」と「動作」の混同があった。下記は実機で反証され、v1.0.1 で修正した:
+
+1. **PTY spawn 未配線**: JNI 自体は健全だったが、全 backend の `spawn()` が `UnsupportedOperationException` で、呼び出し元が存在しなかった。`core/pty-runtime`（`PtyProcess` + `PtyRuntime.spawn/probe`）と `core/terminal-session`（`TerminalSessionHost`）を新設し、backend へ `spawn(prepared, rows, cols)` を実装した
+2. **Terminal Emulator 未使用**: `MainActivity` は placeholder のみだった。`TerminalService` が host を所有し、`TerminalView`（`Text` 行レンダリング）で描画・入力・リサイズする構成に変更した
+3. **SessionManager 二重管理**: service と ViewModel が別インスタンスを持っていた。service の host を正本とし、ViewModel は Flow でミラーする（初版ではスナップショットコピーで UI が更新されない不具合もあり、collector 直結で修正）
+4. **描画クラッシュ**: `Canvas#drawText` は初回 0 サイズで `IllegalArgumentException`（実機で FATAL を確認）。`Text` 行描画へ変更し解消
+5. **診断の非実測**: PTY/app-data exec/nested exec を実 probe 化（いずれも Android 16 で PASS）。PRoot/Debian は未導入を正直に表示
+6. **rootfs 署名鍵**: Ed25519 鍵ペアを発行。秘密鍵は common-rules-document の `keystores/mterm-rootfs-ed25519.private.pem`、公開鍵のみ `RootfsKeys` に埋め込み。署名は `scripts/sign-rootfs.py`
+7. **日英 per-app 対応**: `localeConfig`（en/ja）を 3 app に追加。実機の per-app `ja-JP` で全画面日本語を確認
+
+v1.0.1 の到達点: 115 unit tests PASS（101→+14）、assembleRelease 3 APK（署名済み・16KB PASS）、Android 16 実機で Android shell の対話動作を確認。残件は `mterm.md` §4（Android 11 実機、rootfs 実配布、Bridge UDS 本体、SAF 実同期）。

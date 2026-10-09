@@ -12,6 +12,7 @@
         android:label="@string/app_name"
         android:theme="@style/Theme.MTerm.Remote"
         android:allowBackup="false"
+        android:localeConfig="@xml/locales_config"
         android:supportsRtl="true">
 
         <activity

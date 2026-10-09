@@ -1,13 +1,18 @@
 package dev.studiorizi.mterm.core.linux_proot
 
+import dev.studiorizi.mterm.core.pty_runtime.PtyRuntime
 import dev.studiorizi.mterm.core.session_core.ExecutionBackend
 import dev.studiorizi.mterm.core.session_core.PreparedSession
 import dev.studiorizi.mterm.core.session_core.ProcessHandle
-import dev.studiorizi.mterm.core.session_core.PtyHandle
 import dev.studiorizi.mterm.core.session_core.SessionMode
 import dev.studiorizi.mterm.core.session_core.SessionSpec
+import dev.studiorizi.mterm.core.session_core.SpawnException
+import dev.studiorizi.mterm.core.session_core.SpawnFailure
+import dev.studiorizi.mterm.core.session_core.SpawnedProcess
 import dev.studiorizi.mterm.core.session_core.UnixSignal
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Non-root Debian backend via PRoot (plan section 9.4).
@@ -57,16 +62,41 @@ class ProotBackend(
             // Guest env travels inside argv (/usr/bin/env -i); nothing extra here.
             argv = argv,
             env = emptyArray(),
-            cwd = GUEST_HOME,
+            // The native host chdir must stay on a real Android path; the guest
+            // working directory is set by proot's --cwd.
+            cwd = null,
         )
     }
 
-    override suspend fun spawn(prepared: PreparedSession, pty: PtyHandle): ProcessHandle {
-        throw UnsupportedOperationException("PTY spawn requires device runtime; argv validated")
-    }
+    override suspend fun spawn(prepared: PreparedSession, rows: Int, cols: Int): SpawnedProcess =
+        withContext(Dispatchers.IO) {
+            if (!prootBin.isFile || !prootBin.canExecute()) {
+                throw SpawnException(
+                    SpawnFailure.PROOT_MISSING,
+                    "proot binary not installed at ${prootBin.absolutePath}",
+                )
+            }
+            if (!rootfsDir.isDirectory) {
+                throw SpawnException(
+                    SpawnFailure.ROOTFS_MISSING,
+                    "Debian rootfs not installed at ${rootfsDir.absolutePath}",
+                )
+            }
+            // proot --bind fails on missing host dirs; create the shared dirs.
+            runCatching { bridgeDir.mkdirs() }
+            runCatching { mirrorDir.mkdirs() }
+            val process = PtyRuntime.spawn(
+                argv = prepared.argv,
+                env = prepared.env.toList(),
+                cwd = prepared.cwd,
+                rows = rows,
+                cols = cols,
+            )
+            SpawnedProcess(pty = process, process = process)
+        }
 
     override suspend fun stop(handle: ProcessHandle, signal: UnixSignal) {
-        throw UnsupportedOperationException("PTY spawn requires device runtime; argv validated")
+        withContext(Dispatchers.IO) { handle.signal(signal) }
     }
 
     companion object {

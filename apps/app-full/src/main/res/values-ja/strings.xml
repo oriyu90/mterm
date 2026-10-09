@@ -94,4 +94,16 @@
     <string name="pass">合格</string>
     <string name="fail">不合格</string>
     <string name="unknown">不明</string>
+    <string name="error_service_bind">ターミナルサービスに接続できませんでした。</string>
+    <string name="error_starting_retry">ターミナルサービスを起動しています — 少し待ってもう一度タップしてください。</string>
+    <string name="error_pty_unavailable">この端末ではPTYが利用できません。</string>
+    <string name="error_proot_missing">PRootがまだインストールされていません。Androidシェルは利用可能です。Debianにはrootfsインストーラーが必要です。</string>
+    <string name="error_rootfs_missing">Debian rootfsがまだインストールされていません。Debianセッションを開く前にインストールしてください。</string>
+    <string name="error_root_unsupported">この端末ではroot chrootは利用できません（suまたはプライベートマウント名前空間がありません）。</string>
+    <string name="error_backend_unsupported">このビルドではこのセッション種別は利用できません。</string>
+    <string name="session_exited_code">セッションが終了しました（コード %1$d）。</string>
+    <string name="session_running">実行中</string>
+    <string name="session_starting">起動中…</string>
+    <string name="session_finished">終了しました — 新しいセッションを開いてください。</string>
+    <string name="tap_terminal_hint">ターミナルをタップしてキーボードを表示します。</string>
 </resources>

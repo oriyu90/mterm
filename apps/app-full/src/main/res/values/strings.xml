@@ -94,4 +94,16 @@
     <string name="pass">PASS</string>
     <string name="fail">FAIL</string>
     <string name="unknown">Unknown</string>
+    <string name="error_service_bind">Could not connect to the terminal service.</string>
+    <string name="error_starting_retry">Starting the terminal service — tap again in a moment.</string>
+    <string name="error_pty_unavailable">PTY is unavailable on this device.</string>
+    <string name="error_proot_missing">PRoot is not installed yet. Android shell works; Debian needs the rootfs installer.</string>
+    <string name="error_rootfs_missing">Debian rootfs is not installed yet. Install it before opening a Debian session.</string>
+    <string name="error_root_unsupported">Root chroot is unsupported on this device (no su or no private mount namespace).</string>
+    <string name="error_backend_unsupported">This session type is not available in this build.</string>
+    <string name="session_exited_code">Session exited (code %1$d).</string>
+    <string name="session_running">Running</string>
+    <string name="session_starting">Starting…</string>
+    <string name="session_finished">Finished — open a new session.</string>
+    <string name="tap_terminal_hint">Tap the terminal to show the keyboard.</string>
 </resources>

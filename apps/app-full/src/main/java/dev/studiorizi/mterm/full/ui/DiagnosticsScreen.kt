@@ -12,6 +12,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,18 +23,21 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.studiorizi.mterm.core.diagnostics.DiagnosticsCollector
 import dev.studiorizi.mterm.core.diagnostics.Redactor
-import dev.studiorizi.mterm.core.pty_native.PtyNative
+import dev.studiorizi.mterm.core.pty_runtime.PtyRuntime
 import dev.studiorizi.mterm.core.root_core.RootManager
 import dev.studiorizi.mterm.full.R
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /**
  * Compatibility report viewer (plan section 18.4).
  *
- * Collects [DiagnosticsCollector] fields from Android APIs at composition
- * time, shows pty/appDataExec/proot/debian/nestedExec/node/processCount/
- * root/storage/bridge plus the page size, and exports with [Redactor] so
+ * PTY / app-data exec / nested exec are real on-device probes (not
+ * library-presence flags); PRoot / Debian reflect the installer state;
+ * page size comes from [android.system.Os]. Export uses [Redactor] so
  * paths, usernames and tokens never leave the device unmasked. 16 KB
  * readiness is checked via [DiagnosticsCollector.pageSizeOk].
  */
@@ -42,6 +46,21 @@ fun DiagnosticsScreen(viewModel: TerminalViewModel) {
     val context = LocalContext.current
     var exported by remember { mutableStateOf(false) }
     var exportPreview by remember { mutableStateOf<String?>(null) }
+    var ptyResult by remember { mutableStateOf<String?>(null) }
+    var appDataExecResult by remember { mutableStateOf<String?>(null) }
+    var nestedExecResult by remember { mutableStateOf<String?>(null) }
+
+    val pass = stringResource(R.string.pass)
+    val fail = stringResource(R.string.fail)
+    val unverified = stringResource(R.string.diag_status_runtime_required)
+    val unsupported = stringResource(R.string.diag_status_unsupported)
+    val unknown = stringResource(R.string.unknown)
+
+    LaunchedEffect(Unit) {
+        ptyResult = if (PtyRuntime.probe()) pass else fail
+        appDataExecResult = if (probeAppDataExec(context.filesDir)) pass else fail
+        nestedExecResult = if (probeNestedExec()) pass else fail
+    }
 
     val pageSize = remember {
         try {
@@ -58,7 +77,15 @@ fun DiagnosticsScreen(viewModel: TerminalViewModel) {
             null
         }
     }
-    val report = remember {
+    val prootBin = File(context.filesDir, "bin/proot")
+    val rootfsDir = File(context.filesDir, "linux/distributions/debian/current/rootfs")
+    val prootStatus = when {
+        prootBin.canExecute() -> pass
+        prootBin.exists() -> fail
+        else -> unverified
+    }
+    val debianStatus = if (rootfsDir.isDirectory) pass else unverified
+    val report = remember(ptyResult, appDataExecResult, nestedExecResult) {
         DiagnosticsCollector.collect(
             androidApi = Build.VERSION.SDK_INT,
             manufacturer = Build.MANUFACTURER ?: context.getString(R.string.unknown),
@@ -67,16 +94,16 @@ fun DiagnosticsScreen(viewModel: TerminalViewModel) {
             pageSize = pageSize,
             appTargetSdk = context.applicationInfo.targetSdkVersion,
             buildVariant = "full",
-            pty = if (PtyNative.isAvailable()) "PASS" else "UNVERIFIED",
-            appDataExec = context.getString(R.string.diag_status_runtime_required),
-            proot = context.getString(R.string.diag_status_runtime_required),
-            debian = context.getString(R.string.diag_status_runtime_required),
-            nestedExec = context.getString(R.string.diag_status_runtime_required),
+            pty = ptyResult ?: unverified,
+            appDataExec = appDataExecResult ?: unverified,
+            proot = prootStatus,
+            debian = debianStatus,
+            nestedExec = nestedExecResult ?: unverified,
             nodeVersion = null,
-            processCount = viewModel.supervisor.childCount(),
+            processCount = viewModel.processCount(),
             rootSu = caps?.suAvailable == true,
             storageGrants = context.contentResolver.persistedUriPermissions.size,
-            bridge = context.getString(R.string.diag_status_runtime_required),
+            bridge = unsupported,
         )
     }
 
@@ -103,7 +130,7 @@ fun DiagnosticsScreen(viewModel: TerminalViewModel) {
         DiagRow(stringResource(R.string.diag_proot), report.proot)
         DiagRow(stringResource(R.string.diag_debian), report.debian)
         DiagRow(stringResource(R.string.diag_nested_exec), report.nestedExec)
-        DiagRow(stringResource(R.string.diag_node), report.nodeVersion ?: stringResource(R.string.unknown))
+        DiagRow(stringResource(R.string.diag_node), report.nodeVersion ?: unknown)
         DiagRow(stringResource(R.string.diag_process_count), "${report.processCount}")
         DiagRow(
             stringResource(R.string.diag_root),
@@ -136,6 +163,62 @@ fun DiagnosticsScreen(viewModel: TerminalViewModel) {
                 Text(it.take(2000), style = MaterialTheme.typography.bodySmall)
             }
         }
+    }
+}
+
+/**
+ * App-data exec probe: writes a tiny script under app-private filesDir,
+ * marks it executable and runs it directly. True exec (not via `sh file`)
+ * so the target-28 W^X exemption is actually exercised.
+ */
+private suspend fun probeAppDataExec(filesDir: File): Boolean = withContext(Dispatchers.IO) {
+    try {
+        val dir = File(filesDir, "diagnostics")
+        if (!dir.isDirectory && !dir.mkdirs()) return@withContext false
+        val script = File(dir, "exec-probe.sh")
+        script.writeText("#!/system/bin/sh\nprintf mterm-exec-ok\n")
+        if (!script.setExecutable(true)) return@withContext false
+        val process = ProcessBuilder(script.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader().readText()
+        val exit = process.waitFor()
+        output.contains("mterm-exec-ok") && exit == 0
+    } catch (_: Throwable) {
+        false
+    }
+}
+
+/** Nested-exec probe: PTY child spawning a grandchild through two shells. */
+private suspend fun probeNestedExec(): Boolean = withContext(Dispatchers.IO) {
+    try {
+        if (!PtyRuntime.isAvailable()) return@withContext false
+        val proc = PtyRuntime.spawn(
+            argv = listOf("/system/bin/sh", "-c", "/system/bin/sh -c 'printf mterm-nested-ok'"),
+            rows = 24,
+            cols = 80,
+        )
+        try {
+            val buf = ByteArray(256)
+            val sb = StringBuilder()
+            val deadline = System.currentTimeMillis() + 4_000
+            while (System.currentTimeMillis() < deadline) {
+                val n = proc.read(buf)
+                if (n <= 0) break
+                sb.append(String(buf, 0, n, Charsets.UTF_8))
+                if (sb.contains("mterm-nested-ok")) break
+            }
+            val exit = proc.wait()
+            sb.contains("mterm-nested-ok") && exit == 0
+        } finally {
+            try {
+                proc.close()
+            } catch (_: Throwable) {
+                // best effort
+            }
+        }
+    } catch (_: Throwable) {
+        false
     }
 }
 
