@@ -69,6 +69,16 @@
 | 診断追加行 | network/free-space 行を追加（本検証では目視省略、collector は auto-tune で実証済み） |
 | 未実施 | SOV40 実機（パターンロック中）のスマホ縦画面、16KB 実機（両機 4KB のため CI のみ） |
 
+## 8. ui-ux-pro-max スキル適用パス（2026-10-10 / v1.1.1）
+
+スキル `ui-ux-pro-max` v2.13.0（MIT）を `.opencode/skills/ui-ux-pro-max/` に vendor し、search＋pro-rules チェックリストで UI を修正:
+
+- 48dp タッチターゲット（pro-rules 高重要度×3）: retro の `TButton`/`TFilterChip`/`TSwitch`/`RetroSquareButton` を 40dp→48dp。M3 側は既定の minimum interactive size で適合。実機 uiautomator で 102px（48dp@340dpi）を確認
+- 8dp 間隔（Touch Spacing）: extra-keys `LazyRow` を 4dp→8dp
+- ブレークポイント別ガター（Adaptive gutters）: compact 16dp / expanded 24dp を pane 余白に適用
+- 適用しなかった項目の記録: icon family 変更なし（Material Icons 一貫使用・絵文字なし）、 terminal 高さ値の変更なし（実機で問題なし）、`Canvas#drawText` 不使用方針を維持
+- hallmark との調整: desktop 向け 40px 規定より mobile 向け 48dp を優先（Android アプリのため）
+
 ## 7. リリース
 
 - 1.1.0 / versionCode 10100（3 app 同期）。README・`mterm.md`・紹介サイト・common-rules 文書は従来フローで更新。

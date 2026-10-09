@@ -172,6 +172,8 @@ private fun MTermRoot(
         WindowHeightSizeClass.Medium -> 320.dp
         else -> 480.dp
     }
+    // Adaptive gutters: wider insets on expanded widths/landscape.
+    val gutter = if (windowSize.widthSizeClass == WindowWidthSizeClass.Expanded) 24.dp else 16.dp
     Scaffold(
         topBar = {
             TTopBar(
@@ -192,15 +194,15 @@ private fun MTermRoot(
             composable("home") {
                 if (sideBySide) {
                     Row(modifier = Modifier.fillMaxSize()) {
-                        Box(modifier = Modifier.weight(1f)) { SessionListPane(vm) }
+                        Box(modifier = Modifier.weight(1f)) { SessionListPane(vm, gutter) }
                         Box(modifier = Modifier.weight(1f)) {
-                            SessionDetailPane(vm, termHeight, palette)
+                            SessionDetailPane(vm, termHeight, palette, gutter)
                         }
                     }
                 } else {
                     Column(modifier = Modifier.fillMaxSize()) {
-                        SessionListPane(vm)
-                        SessionDetailPane(vm, termHeight, palette)
+                        SessionListPane(vm, gutter)
+                        SessionDetailPane(vm, termHeight, palette, gutter)
                     }
                 }
             }
@@ -223,7 +225,7 @@ private fun FabHome(onClick: () -> Unit) {
 }
 
 @Composable
-private fun SessionListPane(vm: TerminalViewModel) {
+private fun SessionListPane(vm: TerminalViewModel, gutter: Dp) {
     val context = LocalContext.current
     val sessions by vm.sessions.collectAsState()
     var selected by remember { mutableStateOf<String?>(null) }
@@ -238,7 +240,7 @@ private fun SessionListPane(vm: TerminalViewModel) {
 
     Column(
         modifier = Modifier
-            .padding(16.dp)
+            .padding(gutter)
             .verticalScroll(rememberScrollState()),
     ) {
         Text(stringResource(R.string.sessions), style = MaterialTheme.typography.titleMedium)
@@ -301,6 +303,7 @@ private fun SessionDetailPane(
     vm: TerminalViewModel,
     termHeight: Dp,
     palette: TerminalPalette,
+    gutter: Dp,
 ) {
     val sessions by vm.sessions.collectAsState()
     val tick by vm.tick.collectAsState()
@@ -321,7 +324,7 @@ private fun SessionDetailPane(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp)
+            .padding(gutter)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -411,7 +414,7 @@ private fun ExtraKeysRow(
     onToken: (String) -> Unit,
 ) {
     val keys = remember(extraKeys) { TerminalKeyEncoder.parseList(extraKeys) }
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items(keys) { key ->
             val active = (key.equals("CTRL", true) && ctrlActive) ||
                 (key.equals("ALT", true) && altActive)

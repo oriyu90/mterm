@@ -157,7 +157,7 @@ fun TButton(
         val fg = if (enabled) RetroBlack else RetroDarkGray
         Box(
             modifier = modifier
-                .defaultMinSize(minHeight = 40.dp)
+                .defaultMinSize(minHeight = 48.dp)
                 .retroBevel(pressed = pressed)
                 .background(RetroGray)
                 .clickable(
@@ -276,7 +276,7 @@ private fun RetroSquareButton(label: String, desc: String, onClick: () -> Unit) 
     Box(
         modifier = Modifier
             .padding(start = 4.dp)
-            .defaultMinSize(minWidth = 40.dp, minHeight = 40.dp)
+            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
             .retroBevel(pressed = pressed)
             .background(RetroGray)
             .semantics { contentDescription = desc }
@@ -317,7 +317,7 @@ fun TSwitch(
         val source = remember { MutableInteractionSource() }
         Row(
             modifier = modifier
-                .defaultMinSize(minHeight = 40.dp)
+                .defaultMinSize(minHeight = 48.dp)
                 .clickable(
                     interactionSource = source,
                     indication = null,
@@ -375,7 +375,7 @@ fun TFilterChip(
         }
         Box(
             modifier = modifier
-                .defaultMinSize(minHeight = 40.dp)
+                .defaultMinSize(minHeight = 48.dp)
                 .retroBevel(pressed = pressed || selected)
                 .background(bg)
                 .clickable(
