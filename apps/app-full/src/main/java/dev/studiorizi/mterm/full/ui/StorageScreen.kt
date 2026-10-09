@@ -12,10 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -90,12 +88,12 @@ fun StorageScreen() {
         Spacer(Modifier.height(8.dp))
 
         Row {
-            Button(onClick = { treePicker.launch(null) }) {
+            TButton(onClick = { treePicker.launch(null) }) {
                 Text(stringResource(R.string.saf_pick_tree))
             }
         }
         Spacer(Modifier.height(8.dp))
-        Button(
+        TButton(
             onClick = {
                 // Demo conflict probe: both sides newer than last sync.
                 val now = System.currentTimeMillis()
@@ -144,16 +142,16 @@ private fun ConflictDialog(
         title = { Text(stringResource(R.string.conflict_title)) },
         text = { Text(stringResource(R.string.conflict_message, info.path)) },
         confirmButton = {
-            TextButton(onClick = { onDecision(ConflictDecision.KEEP_ANDROID) }) {
+            TTextButton(onClick = { onDecision(ConflictDecision.KEEP_ANDROID) }) {
                 Text(stringResource(R.string.keep_android))
             }
         },
         dismissButton = {
             Row {
-                TextButton(onClick = { onDecision(ConflictDecision.KEEP_LINUX) }) {
+                TTextButton(onClick = { onDecision(ConflictDecision.KEEP_LINUX) }) {
                     Text(stringResource(R.string.keep_linux))
                 }
-                TextButton(onClick = { onDecision(ConflictDecision.DUPLICATE) }) {
+                TTextButton(onClick = { onDecision(ConflictDecision.DUPLICATE) }) {
                     Text(stringResource(R.string.duplicate))
                 }
             }

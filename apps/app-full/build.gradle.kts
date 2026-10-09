@@ -17,8 +17,8 @@ android {
         applicationId = "dev.studiorizi.mterm.full"
         minSdk = 28
         targetSdk = 28
-        versionCode = 10001
-        versionName = "1.0.1"
+        versionCode = 10100
+        versionName = "1.1.0"
     }
 
     signingConfigs {

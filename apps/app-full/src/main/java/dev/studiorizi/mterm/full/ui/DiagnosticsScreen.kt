@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,6 +48,8 @@ fun DiagnosticsScreen(viewModel: TerminalViewModel) {
     var ptyResult by remember { mutableStateOf<String?>(null) }
     var appDataExecResult by remember { mutableStateOf<String?>(null) }
     var nestedExecResult by remember { mutableStateOf<String?>(null) }
+    var netValue by remember { mutableStateOf<String?>(null) }
+    var freeValue by remember { mutableStateOf<String?>(null) }
 
     val pass = stringResource(R.string.pass)
     val fail = stringResource(R.string.fail)
@@ -60,6 +61,31 @@ fun DiagnosticsScreen(viewModel: TerminalViewModel) {
         ptyResult = if (PtyRuntime.probe()) pass else fail
         appDataExecResult = if (probeAppDataExec(context.filesDir)) pass else fail
         nestedExecResult = if (probeNestedExec()) pass else fail
+        try {
+            val caps = collectCaps(context.applicationContext)
+            netValue = if (caps.networkTransport == "NONE") {
+                context.getString(R.string.diag_network_none)
+            } else {
+                context.getString(
+                    R.string.diag_network_value,
+                    caps.networkTransport,
+                    context.getString(
+                        if (caps.networkMetered) {
+                            R.string.diag_network_metered
+                        } else {
+                            R.string.diag_network_unmetered
+                        },
+                    ),
+                ) + if (caps.networkValidated) {
+                    ""
+                } else {
+                    " · " + context.getString(R.string.diag_network_unvalidated)
+                }
+            }
+            freeValue = android.text.format.Formatter.formatShortFileSize(context, caps.freeBytes)
+        } catch (_: Throwable) {
+            // Network/storage rows stay blank rather than crash the screen.
+        }
     }
 
     val pageSize = remember {
@@ -131,6 +157,8 @@ fun DiagnosticsScreen(viewModel: TerminalViewModel) {
         DiagRow(stringResource(R.string.diag_debian), report.debian)
         DiagRow(stringResource(R.string.diag_nested_exec), report.nestedExec)
         DiagRow(stringResource(R.string.diag_node), report.nodeVersion ?: unknown)
+        DiagRow(stringResource(R.string.diag_network), netValue ?: unverified)
+        DiagRow(stringResource(R.string.diag_storage_free), freeValue ?: unverified)
         DiagRow(stringResource(R.string.diag_process_count), "${report.processCount}")
         DiagRow(
             stringResource(R.string.diag_root),
@@ -143,7 +171,7 @@ fun DiagnosticsScreen(viewModel: TerminalViewModel) {
         DiagRow(stringResource(R.string.diag_bridge), report.bridge)
 
         Spacer(Modifier.height(16.dp))
-        Button(
+        TButton(
             onClick = {
                 val json = Json.encodeToString(report)
                 exportPreview = Redactor.redact(json)

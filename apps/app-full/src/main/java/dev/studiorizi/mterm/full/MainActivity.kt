@@ -1,11 +1,13 @@
 package dev.studiorizi.mterm.full
 
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,25 +19,23 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
+import androidx.compose.material3.windowsizeclass.WindowHeightSizeClass
+import androidx.compose.material3.windowsizeclass.WindowSizeClass
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,31 +43,47 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import dev.studiorizi.mterm.core.data.MTermPrefs
-import dev.studiorizi.mterm.core.session_core.SessionState
 import dev.studiorizi.mterm.core.terminal_session.TerminalKeyEncoder
+import dev.studiorizi.mterm.full.ui.AppTheme
 import dev.studiorizi.mterm.full.ui.DiagnosticsScreen
+import dev.studiorizi.mterm.full.ui.LocalRetro
 import dev.studiorizi.mterm.full.ui.SettingsScreen
 import dev.studiorizi.mterm.full.ui.StorageScreen
+import dev.studiorizi.mterm.full.ui.TButton
+import dev.studiorizi.mterm.full.ui.TCard
+import dev.studiorizi.mterm.full.ui.TFilterChip
+import dev.studiorizi.mterm.full.ui.TTopBar
+import dev.studiorizi.mterm.full.ui.TerminalPalette
 import dev.studiorizi.mterm.full.ui.TerminalView
 import dev.studiorizi.mterm.full.ui.TerminalViewModel
+import dev.studiorizi.mterm.full.ui.appColorScheme
+import dev.studiorizi.mterm.full.ui.appShapes
+import dev.studiorizi.mterm.full.ui.terminalPaletteFor
 
 /**
  * Full Sideload MVP entry point.
  *
  * API 28 launches into the bilingual unsupported screen; API 29+ shows the
- * adaptive Compose tree (1-pane on compact, 2-pane on expanded). All labels
- * come from string resources so the system locale (JA/EN) applies
- * automatically. Sessions run in [dev.studiorizi.mterm.full.service.TerminalService]
- * (bound here so PTYs survive rotation); the UI never calls su/mount/proot
- * directly.
+ * adaptive Compose tree. Layout adapts to width class *and* orientation
+ * (landscape always splits so the terminal keeps its columns); the terminal
+ * height follows the height class so phones, landscape bars, and tablets
+ * each get a usable surface. Theme (system/light/dark/retro) and display
+ * scale come from DataStore prefs. All labels come from string resources so
+ * the system locale (JA/EN) applies automatically. Sessions run in
+ * [dev.studiorizi.mterm.full.service.TerminalService] (bound here so PTYs
+ * survive rotation); the UI never calls su/mount/proot directly.
  */
 class MainActivity : ComponentActivity() {
 
@@ -78,13 +94,31 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            MaterialTheme {
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                    UnsupportedScreen(api = Build.VERSION.SDK_INT)
-                } else {
-                    val windowSize = calculateWindowSizeClass(this)
-                    val expanded = windowSize.widthSizeClass == WindowWidthSizeClass.Expanded
-                    MTermRoot(expanded = expanded, vm = terminalViewModel)
+            val prefs = remember { MTermPrefs(applicationContext) }
+            val themeKey by prefs.theme.collectAsState(initial = "system")
+            val displayScale by prefs.displayScale.collectAsState(initial = 1.0f)
+            val theme = AppTheme.of(themeKey)
+            val systemDark = isSystemInDarkTheme()
+            val dark = theme == AppTheme.DARK || (theme == AppTheme.SYSTEM && systemDark)
+            val density = LocalDensity.current
+            MaterialTheme(
+                colorScheme = appColorScheme(theme, dark),
+                shapes = appShapes(theme),
+            ) {
+                CompositionLocalProvider(
+                    LocalDensity provides Density(density.density, density.fontScale * displayScale),
+                    LocalRetro provides (theme == AppTheme.RETRO),
+                ) {
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                        UnsupportedScreen(api = Build.VERSION.SDK_INT)
+                    } else {
+                        val windowSize = calculateWindowSizeClass(this)
+                        MTermRoot(
+                            windowSize = windowSize,
+                            palette = terminalPaletteFor(theme),
+                            vm = terminalViewModel,
+                        )
+                    }
                 }
             }
         }
@@ -115,33 +149,39 @@ private fun UnsupportedScreen(api: Int) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3WindowSizeClassApi::class)
 @Composable
-private fun MTermRoot(expanded: Boolean, vm: TerminalViewModel = viewModel()) {
+private fun MTermRoot(
+    windowSize: WindowSizeClass,
+    palette: TerminalPalette,
+    vm: TerminalViewModel = viewModel(),
+) {
     val context = LocalContext.current
     DisposableEffect(context) {
         vm.bind(context)
         onDispose { vm.unbind(context) }
     }
     val nav = rememberNavController()
+    val orientation = LocalConfiguration.current.orientation
+    val sideBySide = windowSize.widthSizeClass == WindowWidthSizeClass.Expanded ||
+        orientation == Configuration.ORIENTATION_LANDSCAPE
+    // Terminal height follows the height class: compact landscape bars stay
+    // usable, tablets get a tall surface. PTY rows track it via onResize.
+    val termHeight = when (windowSize.heightSizeClass) {
+        WindowHeightSizeClass.Compact -> 240.dp
+        WindowHeightSizeClass.Medium -> 320.dp
+        else -> 480.dp
+    }
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.app_name)) },
-                actions = {
-                    IconButton(onClick = { nav.navigate("diagnostics") }) {
-                        Icon(Icons.Filled.Info, contentDescription = stringResource(R.string.diagnostics))
-                    }
-                    IconButton(onClick = { nav.navigate("settings") }) {
-                        Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.settings))
-                    }
-                },
+            TTopBar(
+                title = stringResource(R.string.app_name),
+                onDiagnostics = { nav.navigate("diagnostics") },
+                onSettings = { nav.navigate("settings") },
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { nav.navigate("home") }) {
-                Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.new_session))
-            }
+            FabHome(onClick = { nav.navigate("home") })
         },
     ) { padding ->
         NavHost(
@@ -150,21 +190,34 @@ private fun MTermRoot(expanded: Boolean, vm: TerminalViewModel = viewModel()) {
             modifier = Modifier.padding(padding),
         ) {
             composable("home") {
-                if (expanded) {
+                if (sideBySide) {
                     Row(modifier = Modifier.fillMaxSize()) {
                         Box(modifier = Modifier.weight(1f)) { SessionListPane(vm) }
-                        Box(modifier = Modifier.weight(1f)) { SessionDetailPane(vm) }
+                        Box(modifier = Modifier.weight(1f)) {
+                            SessionDetailPane(vm, termHeight, palette)
+                        }
                     }
                 } else {
                     Column(modifier = Modifier.fillMaxSize()) {
                         SessionListPane(vm)
-                        SessionDetailPane(vm)
+                        SessionDetailPane(vm, termHeight, palette)
                     }
                 }
             }
             composable("settings") { SettingsScreen() }
             composable("storage") { StorageScreen() }
             composable("diagnostics") { DiagnosticsScreen(vm) }
+        }
+    }
+}
+
+@Composable
+private fun FabHome(onClick: () -> Unit) {
+    if (LocalRetro.current) {
+        TButton(onClick = onClick) { Text("+") }
+    } else {
+        FloatingActionButton(onClick = onClick) {
+            Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.new_session))
         }
     }
 }
@@ -183,7 +236,11 @@ private fun SessionListPane(vm: TerminalViewModel) {
         selected = ids.firstOrNull()
     }
 
-    Column(modifier = Modifier.padding(16.dp)) {
+    Column(
+        modifier = Modifier
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+    ) {
         Text(stringResource(R.string.sessions), style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
         if (sessions.isEmpty()) {
@@ -192,7 +249,7 @@ private fun SessionListPane(vm: TerminalViewModel) {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(sessions.values.toList(), key = { it.spec.id }) { runtime ->
                     val state by runtime.state.collectAsState()
-                    FilterChip(
+                    TFilterChip(
                         selected = selected == runtime.spec.id,
                         onClick = { selected = runtime.spec.id },
                         label = { Text("${runtime.spec.title} · ${state.name}") },
@@ -209,22 +266,22 @@ private fun SessionListPane(vm: TerminalViewModel) {
         )
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { vm.newAndroidShell(context) }) {
+            TButton(onClick = { vm.newAndroidShell(context) }) {
                 Text(stringResource(R.string.new_android_shell))
             }
-            Button(onClick = { vm.newDebianProot(context) }) {
+            TButton(onClick = { vm.newDebianProot(context) }) {
                 Text(stringResource(R.string.new_debian_proot))
             }
         }
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
+            TButton(
                 onClick = { vm.newRootChroot(context) },
                 enabled = vm.rootChrootSupported.collectAsState().value == true,
             ) {
                 Text(stringResource(R.string.new_root_chroot))
             }
-            Button(onClick = { vm.stopAll(context) }) {
+            TButton(onClick = { vm.stopAll(context) }) {
                 Text(stringResource(R.string.stop_all))
             }
         }
@@ -240,7 +297,11 @@ private fun SessionListPane(vm: TerminalViewModel) {
 }
 
 @Composable
-private fun SessionDetailPane(vm: TerminalViewModel) {
+private fun SessionDetailPane(
+    vm: TerminalViewModel,
+    termHeight: Dp,
+    palette: TerminalPalette,
+) {
     val sessions by vm.sessions.collectAsState()
     val tick by vm.tick.collectAsState()
     val context = LocalContext.current
@@ -260,10 +321,11 @@ private fun SessionDetailPane(vm: TerminalViewModel) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Card(modifier = Modifier.fillMaxWidth()) {
+        TCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp)) {
                 Text(stringResource(R.string.terminal), style = MaterialTheme.typography.titleMedium)
                 if (sessionId == null) {
@@ -293,7 +355,8 @@ private fun SessionDetailPane(vm: TerminalViewModel) {
                             onResize = { rows, cols -> vm.resize(sessionId, rows, cols) },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(320.dp),
+                                .height(termHeight),
+                            palette = palette,
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -352,7 +415,7 @@ private fun ExtraKeysRow(
         items(keys) { key ->
             val active = (key.equals("CTRL", true) && ctrlActive) ||
                 (key.equals("ALT", true) && altActive)
-            FilterChip(
+            TFilterChip(
                 selected = active,
                 onClick = { onToken(key) },
                 label = { Text(key) },
@@ -371,7 +434,7 @@ private fun StatusCards(sessionCount: Int, processCount: Int) {
         stringResource(R.string.diag_process_count) to "$processCount",
     )
     cards.forEach { (title, status) ->
-        Card(modifier = Modifier.fillMaxWidth()) {
+        TCard(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

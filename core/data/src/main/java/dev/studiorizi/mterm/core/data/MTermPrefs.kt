@@ -22,6 +22,14 @@ class MTermPrefs(private val context: Context) {
         context.mtermDataStore.data.map { it[Keys.EXTRA_KEYS] ?: DEFAULT_EXTRA_KEYS }
     val bridgeSensitive: Flow<Boolean> =
         context.mtermDataStore.data.map { it[Keys.BRIDGE_SENSITIVE] ?: false }
+    val displayScale: Flow<Float> =
+        context.mtermDataStore.data.map { it[Keys.DISPLAY_SCALE] ?: 1.0f }
+    val wifiOnlyDownload: Flow<Boolean> =
+        context.mtermDataStore.data.map { it[Keys.WIFI_ONLY_DOWNLOAD] ?: true }
+    val autoMirrorSync: Flow<Boolean> =
+        context.mtermDataStore.data.map { it[Keys.AUTO_MIRROR_SYNC] ?: true }
+    val lastAutoTune: Flow<String> =
+        context.mtermDataStore.data.map { it[Keys.LAST_AUTO_TUNE] ?: "" }
 
     suspend fun setTheme(value: String) {
         context.mtermDataStore.edit { it[Keys.THEME] = value }
@@ -43,15 +51,38 @@ class MTermPrefs(private val context: Context) {
         context.mtermDataStore.edit { it[Keys.BRIDGE_SENSITIVE] = value }
     }
 
+    suspend fun setDisplayScale(value: Float) {
+        context.mtermDataStore.edit { it[Keys.DISPLAY_SCALE] = value.coerceIn(0.5f, 2.0f) }
+    }
+
+    suspend fun setWifiOnlyDownload(value: Boolean) {
+        context.mtermDataStore.edit { it[Keys.WIFI_ONLY_DOWNLOAD] = value }
+    }
+
+    suspend fun setAutoMirrorSync(value: Boolean) {
+        context.mtermDataStore.edit { it[Keys.AUTO_MIRROR_SYNC] = value }
+    }
+
+    suspend fun setLastAutoTune(value: String) {
+        context.mtermDataStore.edit { it[Keys.LAST_AUTO_TUNE] = value.take(2000) }
+    }
+
     private object Keys {
         val THEME = stringPreferencesKey("theme")
         val FONT_SIZE = floatPreferencesKey("font_size")
         val SCROLLBACK = intPreferencesKey("scrollback")
         val EXTRA_KEYS = stringPreferencesKey("extra_keys")
         val BRIDGE_SENSITIVE = booleanPreferencesKey("bridge_sensitive")
+        val DISPLAY_SCALE = floatPreferencesKey("display_scale")
+        val WIFI_ONLY_DOWNLOAD = booleanPreferencesKey("wifi_only_download")
+        val AUTO_MIRROR_SYNC = booleanPreferencesKey("auto_mirror_sync")
+        val LAST_AUTO_TUNE = stringPreferencesKey("last_auto_tune")
     }
 
     companion object {
         const val DEFAULT_EXTRA_KEYS = "ESC|TAB|CTRL|ALT|LEFT|UP|DOWN|RIGHT"
+
+        /** Display-scale choices offered in Settings (persisted value + label). */
+        val DISPLAY_SCALE_CHOICES = listOf(0.85f, 1.0f, 1.15f, 1.3f)
     }
 }

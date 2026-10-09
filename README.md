@@ -40,6 +40,9 @@
 - Node 24 LTS preset、Claude Code は native installer 優先・npm fallback（`claude --version` / `doctor` / MCP child process を E2E で検証）
 - root chroot backend（libsu ではなく純粋 su 検出で MVP。private mount namespace が作れない端末では無効化し、global mount しない）
 - Mac ライク UI（tabs / split 2-pane / extra keys 編集可能 / 選択コピー / True Color / large-screen adaptive、edge-to-edge）
+- テーマ 4 種（システム / ライト / ダーク / レトロ Win98 風。ターミナル配色も連動）＋表示スケール調整（85〜130%）
+- 縦横・スマホ〜タブレット対応（landscape は常時 2 ペイン、terminal 高さは height class 連動）
+- 自動最適化（ネットワーク・空き容量・メモリ・SAF 許可を検出し Wi-Fi のみ DL・同期・scrollback を安全側へ自動設定）
 - 日英完全対応（`values/strings.xml` と `values-ja/strings.xml` のキー完全一致を `StringsParityTest` で検証）
 - 16KB page 対応（NDK 28.2、CMake 3.22、`-Wl,-z,max-page-size=16384`、`scripts/check-elf-alignment.sh` で検査）
 
@@ -122,7 +125,7 @@ Full and Play editions are separate products sharing only core modules — never
 - Signed rootfs installer (SHA-256 + Ed25519, staged + atomic, never overwrites `/home`, traversal-safe)
 - PRoot backend (fixed argv arrays, no shell concat), TerminalService FGS (user-gesture only), ProcessSupervisor (phantom warnings 24/32, zombie reaping)
 - SAF mirror/sync (no direct content-URI POSIX mapping, conflict UI, excludes), AndroidBridge UDS (0600 + SO_PEERCRED, FileProvider open)
-- Node 24 LTS, Claude Code native-installer-first, root chroot gated on private mount namespace, Mac-like adaptive UI, complete JA/EN parity, 16KB-page ready
+- Node 24 LTS, Claude Code native-installer-first, root chroot gated on private mount namespace, Mac-like adaptive UI, complete JA/EN parity, 16KB-page ready, four themes (system/light/dark/retro) with display scaling, device auto-tune
 
 ### Usage
 

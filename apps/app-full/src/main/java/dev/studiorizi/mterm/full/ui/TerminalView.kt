@@ -44,37 +44,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** xterm 16-color palette on a dark terminal background. */
-private val PALETTE = listOf(
-    Color(0xFF1A1B26), // 0 black (terminal bg)
-    Color(0xFFF7768E), // 1 red
-    Color(0xFF9ECE6A), // 2 green
-    Color(0xFFE0AF68), // 3 yellow
-    Color(0xFF7AA2F7), // 4 blue
-    Color(0xFFBB9AF7), // 5 magenta
-    Color(0xFF7DCFFF), // 6 cyan
-    Color(0xFFC0CAF5), // 7 white (default fg)
-    Color(0xFF414868), // 8 bright black
-    Color(0xFFFF899D), // 9 bright red
-    Color(0xFFB9F27C), // 10 bright green
-    Color(0xFFFFC777), // 11 bright yellow
-    Color(0xFF8DB0FB), // 12 bright blue
-    Color(0xFFC7A9FA), // 13 bright magenta
-    Color(0xFF93E1FF), // 14 bright cyan
-    Color(0xFFD5D6DB), // 15 bright white
-)
-
-private fun fgColor(index: Int): Color = PALETTE[index.coerceIn(0, 15)]
-private fun bgColor(index: Int): Color =
-    if (index == Cell.DEFAULT_BG) Color.Transparent else PALETTE[index.coerceIn(0, 15)]
-
 /**
  * Terminal surface bound to a [TerminalEmulator].
  *
  * Rows render as [Text] lines with per-cell colors (robust: no Canvas text
  * drawing, which crashes on zero-size first frames). The block cursor is a
  * reversed-color cell. [tick] drives recomposition whenever PTY output
- * arrives.
+ * arrives. Colors come from [palette] so the app theme (light/dark/retro)
+ * re-skins the console without touching emulation.
  *
  * Text input arrives via the invisible [BasicTextField] (IME; its own cursor
  * is hidden) and hardware key events (control keys, arrows, enter,
@@ -89,6 +66,7 @@ fun TerminalView(
     onInput: (ByteArray) -> Unit,
     onResize: (rows: Int, cols: Int) -> Unit,
     modifier: Modifier = Modifier,
+    palette: TerminalPalette = DarkTerminalPalette,
 ) {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -143,7 +121,7 @@ fun TerminalView(
 
     Box(
         modifier = modifier
-            .background(Color(0xFF1A1B26))
+            .background(palette.background)
             .onSizeChanged { size ->
                 lastSizePx = size.width to size.height
                 resizeJob?.cancel()
@@ -166,7 +144,7 @@ fun TerminalView(
                     .verticalScroll(scroll),
             ) {
                 snapshot.back.forEach { cells ->
-                    TerminalLine(cells, cursorCol = -1, showCursor = false, fontSizeSp = fontSizeSp, lineHeight = lineHeight)
+                    TerminalLine(cells, cursorCol = -1, showCursor = false, fontSizeSp = fontSizeSp, lineHeight = lineHeight, palette = palette)
                 }
                 snapshot.rows.forEachIndexed { index, cells ->
                     TerminalLine(
@@ -175,6 +153,7 @@ fun TerminalView(
                         showCursor = hasFocus && index == snapshot.cursorRow,
                         fontSizeSp = fontSizeSp,
                         lineHeight = lineHeight,
+                        palette = palette,
                     )
                 }
             }
@@ -246,8 +225,9 @@ private fun TerminalLine(
     showCursor: Boolean,
     fontSizeSp: Float,
     lineHeight: androidx.compose.ui.unit.TextUnit,
+    palette: TerminalPalette,
 ) {
-    val annotated = remember(cells, cursorCol, showCursor) {
+    val annotated = remember(cells, cursorCol, showCursor, palette) {
         buildAnnotatedString {
             var col = 0
             var rendered = 0
@@ -258,11 +238,11 @@ private fun TerminalLine(
                     continue
                 }
                 val isCursor = showCursor && col == cursorCol
-                val fg = if (isCursor) Color(0xFF1A1B26) else fgColor(cell.fg)
+                val fg = if (isCursor) palette.cursorFg else palette.fg(cell.fg)
                 val bg = if (isCursor) {
-                    Color(0xFFC0CAF5)
+                    palette.cursorBg
                 } else {
-                    bgColor(cell.bg)
+                    palette.bg(cell.bg)
                 }
                 withStyle(
                     SpanStyle(
@@ -278,7 +258,7 @@ private fun TerminalLine(
             }
             // Cursor past end of line.
             if (showCursor && cursorCol >= rendered) {
-                withStyle(SpanStyle(color = Color(0xFF1A1B26), background = Color(0xFFC0CAF5))) {
+                withStyle(SpanStyle(color = palette.cursorFg, background = palette.cursorBg)) {
                     append(' ')
                 }
             }
