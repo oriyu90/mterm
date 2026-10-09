@@ -13,6 +13,15 @@ android {
     // ndkVersion pending: uncomment once the NDK is installed locally.
     // ndkVersion = "28.2.13676358"
 
+    // PRoot binaries ship from distribution/proot/ (single source of truth,
+    // version-pinned with SHA256SUMS) into generated assets at build time.
+    // (Eager File: AGP 9 forbids Provider instances in the SourceSet API.)
+    sourceSets {
+        getByName("main").assets.srcDir(
+            layout.buildDirectory.dir("generated/proot-assets").get().asFile,
+        )
+    }
+
     defaultConfig {
         applicationId = "dev.studiorizi.mterm.full"
         minSdk = 28
@@ -111,4 +120,18 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
+}
+
+// Copy version-pinned PRoot binaries from distribution/proot/ into assets.
+// Runs before every asset merge so debug AND release APKs carry them.
+val syncProotAssets by tasks.registering(Copy::class) {
+    from("${rootDir}/distribution/proot") {
+        include("proot-arm64-v8a", "libtalloc.so.2", "libandroid-shmem.so")
+        rename("proot-arm64-v8a", "proot")
+    }
+    into(layout.buildDirectory.dir("generated/proot-assets/bin"))
+}
+
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach {
+    dependsOn(syncProotAssets)
 }

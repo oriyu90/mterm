@@ -58,6 +58,7 @@ import dev.studiorizi.mterm.core.data.MTermPrefs
 import dev.studiorizi.mterm.core.terminal_session.TerminalKeyEncoder
 import dev.studiorizi.mterm.full.ui.AppTheme
 import dev.studiorizi.mterm.full.ui.DiagnosticsScreen
+import dev.studiorizi.mterm.full.ui.LinuxSetupScreen
 import dev.studiorizi.mterm.full.ui.LocalRetro
 import dev.studiorizi.mterm.full.ui.SettingsScreen
 import dev.studiorizi.mterm.full.ui.StorageScreen
@@ -194,14 +195,16 @@ private fun MTermRoot(
             composable("home") {
                 if (sideBySide) {
                     Row(modifier = Modifier.fillMaxSize()) {
-                        Box(modifier = Modifier.weight(1f)) { SessionListPane(vm, gutter) }
+                        Box(modifier = Modifier.weight(1f)) {
+                            SessionListPane(vm, gutter) { nav.navigate("linux") }
+                        }
                         Box(modifier = Modifier.weight(1f)) {
                             SessionDetailPane(vm, termHeight, palette, gutter)
                         }
                     }
                 } else {
                     Column(modifier = Modifier.fillMaxSize()) {
-                        SessionListPane(vm, gutter)
+                        SessionListPane(vm, gutter) { nav.navigate("linux") }
                         SessionDetailPane(vm, termHeight, palette, gutter)
                     }
                 }
@@ -209,6 +212,14 @@ private fun MTermRoot(
             composable("settings") { SettingsScreen() }
             composable("storage") { StorageScreen() }
             composable("diagnostics") { DiagnosticsScreen(vm) }
+            composable("linux") {
+                LinuxSetupScreen(
+                    onOpenTerminal = {
+                        vm.newDebianProot(context)
+                        nav.navigate("home")
+                    },
+                )
+            }
         }
     }
 }
@@ -225,7 +236,11 @@ private fun FabHome(onClick: () -> Unit) {
 }
 
 @Composable
-private fun SessionListPane(vm: TerminalViewModel, gutter: Dp) {
+private fun SessionListPane(
+    vm: TerminalViewModel,
+    gutter: Dp,
+    onLinuxSetup: () -> Unit,
+) {
     val context = LocalContext.current
     val sessions by vm.sessions.collectAsState()
     var selected by remember { mutableStateOf<String?>(null) }
@@ -285,6 +300,12 @@ private fun SessionListPane(vm: TerminalViewModel, gutter: Dp) {
             }
             TButton(onClick = { vm.stopAll(context) }) {
                 Text(stringResource(R.string.stop_all))
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TButton(onClick = onLinuxSetup) {
+                Text(stringResource(R.string.linux_setup))
             }
         }
         vm.lastError.collectAsState().value?.let { error ->

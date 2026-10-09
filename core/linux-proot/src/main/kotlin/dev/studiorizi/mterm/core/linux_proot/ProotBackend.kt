@@ -44,24 +44,14 @@ class ProotBackend(
         } else {
             spec.command
         }
-        val argv = listOf(
-            prootBin.absolutePath,
-            "--rootfs", rootfsDir.absolutePath,
-            "--bind", "${bridgeDir.absolutePath}:/run/android-bridge",
-            "--bind", "${mirrorDir.absolutePath}:/mnt/shared",
-            "--cwd", GUEST_HOME,
-            "/usr/bin/env", "-i",
-            "HOME=$GUEST_HOME",
-            "USER=$GUEST_USER",
-            "TERM=xterm-256color",
-            "PATH=/usr/local/bin:/usr/bin:/bin",
-            "SHELL=/bin/zsh",
-        ) + tail
+        // Guest env travels inside argv (/usr/bin/env -i); the host env
+        // carries only the loader path. See ProotArgv (single source of
+        // truth shared with one-shot GuestProbe commands).
+        val argv = ProotArgv.build(prootBin, rootfsDir, bridgeDir, mirrorDir, tail)
         return PreparedSession(
             spec = spec,
-            // Guest env travels inside argv (/usr/bin/env -i); nothing extra here.
             argv = argv,
-            env = emptyArray(),
+            env = ProotArgv.hostEnv(prootBin),
             // The native host chdir must stay on a real Android path; the guest
             // working directory is set by proot's --cwd.
             cwd = null,
@@ -100,8 +90,8 @@ class ProotBackend(
     }
 
     companion object {
-        const val GUEST_HOME = "/home/user"
-        const val GUEST_USER = "user"
-        val DEFAULT_SHELL: List<String> = listOf("/bin/zsh", "-l")
+        const val GUEST_HOME = ProotArgv.GUEST_HOME
+        const val GUEST_USER = ProotArgv.GUEST_USER
+        val DEFAULT_SHELL: List<String> = ProotArgv.DEFAULT_SHELL
     }
 }

@@ -3,8 +3,8 @@
   "id": "debian-trixie-arm64",
   "version": "13.7-r1",
   "arch": "arm64",
-  "sha256": "REPLACE_WITH_ROOTFS_TAR_ZST_SHA256_HEX",
-  "size": 0,
+  "sha256": "385e7a6e55afd3d1a267d9417be66d509379451a741ff45b9ab6bdb6e5e7290d",
+  "size": 145102145,
   "minAppVersion": 10000,
   "createdAt": "2026-09-30T00:00:00Z",
   "channel": "stable",
@@ -21,5 +21,5 @@
     "locales"
   ],
   "notes": "MVP pinned distribution is Debian 13.7 trixie arm64. Build via CI ARM64 runner (mmdebstrap minbase), strip machine-id/host keys/apt cache, tar.zst + manifest sign (Ed25519). App embeds only the public key.",
-  "signature": "ed25519:REPLACE_WITH_SIGNATURE"
+  "signature": "ed25519:Vh/QhPKL6BFXpG41reFIkLY9A12Acx8x2FA2YJrCrZNnab85bZ0ar5CrmG7xtEbxzxdVo7MvRVe3T6NwJlzIBA=="
 }

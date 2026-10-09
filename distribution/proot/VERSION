@@ -1,0 +1,8 @@
+proot 5.1.107.96 (termux/proot family, aarch64)
+libtalloc 2.5.0 (aarch64)
+libandroid-shmem 0.7 (aarch64)
+source: https://packages.termux.dev/apt/termux-main (pool/main/p/proot, pool/main/libt/libtalloc, pool/main/liba/libandroid-shmem)
+upstream: https://github.com/termux/proot (GPL-2.0-only, see NOTICE)
+license text: https://raw.githubusercontent.com/termux/proot/master/COPYING
+usage: proot --rootfs <dir> --bind <host:guest> --cwd <dir> <program> [args...]
+loader note: LD_LIBRARY_PATH must include the dir holding libtalloc.so.2 + libandroid-shmem.so

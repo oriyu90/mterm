@@ -82,5 +82,30 @@ class RootfsManager(
 
     companion object {
         const val PENDING_VERSION = "pending"
+
+        /** Manifest id/arch the installer accepts (fixed per plan 9.1). */
+        const val EXPECTED_ID = "debian-trixie-arm64"
+        const val EXPECTED_ARCH = "arm64"
+
+        /**
+         * Resolves the live rootfs dir without coroutines (for service
+         * startup): current.json's version when present, otherwise the
+         * legacy `current/rootfs` path. Never throws.
+         */
+        fun activeRootfsDir(filesDir: File): File {
+            val version = try {
+                val text = File(filesDir, "linux/current.json").takeIf { it.isFile }
+                    ?.readText(Charsets.UTF_8) ?: return legacyRootfsDir(filesDir)
+                Regex("\"version\"\\s*:\\s*\"([^\"]+)\"").find(text)?.groupValues?.getOrNull(1)
+                    ?.takeIf { it.isNotBlank() && '/' !in it && it != "." && it != ".." }
+                    ?: return legacyRootfsDir(filesDir)
+            } catch (e: Exception) {
+                return legacyRootfsDir(filesDir)
+            }
+            return File(filesDir, "linux/distributions/debian/$version/rootfs")
+        }
+
+        private fun legacyRootfsDir(filesDir: File): File =
+            File(filesDir, "linux/distributions/debian/current/rootfs")
     }
 }

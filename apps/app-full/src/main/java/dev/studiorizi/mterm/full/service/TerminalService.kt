@@ -14,11 +14,12 @@ import dev.studiorizi.mterm.core.linux_chroot.ChrootBackend
 import dev.studiorizi.mterm.core.linux_proot.ProotBackend
 import dev.studiorizi.mterm.core.process_supervisor.ProcessSupervisor
 import dev.studiorizi.mterm.core.session_core.SessionManager
+import dev.studiorizi.mterm.full.backend.AndroidShellBackend
+import dev.studiorizi.mterm.full.backend.LinuxPaths
 import dev.studiorizi.mterm.core.session_core.SessionMode
 import dev.studiorizi.mterm.core.terminal_session.TerminalSessionHost
 import dev.studiorizi.mterm.full.MainActivity
 import dev.studiorizi.mterm.full.R
-import dev.studiorizi.mterm.full.backend.AndroidShellBackend
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -109,10 +110,12 @@ class TerminalService : Service() {
 
     private fun buildHost(): TerminalSessionHost {
         val filesDir: File = filesDir
-        val debianDir = File(filesDir, "linux/distributions/debian/current/rootfs")
-        val bridgeDir = File(filesDir, "shared/bridge")
-        val mirrorDir = File(filesDir, "shared/mirror")
-        val prootBin = File(filesDir, "bin/proot")
+        // Resolve the installer-published version (falls back to the legacy
+        // path when nothing is installed yet). See LinuxPaths.
+        val debianDir = LinuxPaths.rootfsDir(filesDir)
+        val bridgeDir = LinuxPaths.bridgeDir(filesDir)
+        val mirrorDir = LinuxPaths.mirrorDir(filesDir)
+        val prootBin = LinuxPaths.prootBin(filesDir)
         val manager = SessionManager(
             mapOf(
                 SessionMode.ANDROID_SHELL to AndroidShellBackend(),
