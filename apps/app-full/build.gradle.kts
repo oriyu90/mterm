@@ -114,10 +114,14 @@ dependencies {
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.security.crypto)
+    // SSH transport (sshj). SLF4J has no binding: sshj logs are dropped.
+    implementation(libs.sshj)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.kotlinx.coroutines.test)
+    // In-process SSH server for transport tests (loopback only, JVM-only).
+    testImplementation(libs.sshd.core)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

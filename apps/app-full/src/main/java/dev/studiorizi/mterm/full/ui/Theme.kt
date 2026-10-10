@@ -409,13 +409,15 @@ fun TFilterChip(
 // in light/retro modes like classic console windows).
 // ---------------------------------------------------------------------------
 
-/** 16-color terminal palette plus surface/cursor colors. */
+/** 16-color terminal palette plus surface/cursor/search colors. */
 data class TerminalPalette(
     val background: Color,
     val defaultFg: Color,
     val colors: List<Color>,
     val cursorBg: Color,
     val cursorFg: Color,
+    val searchBg: Color,
+    val searchCurrentBg: Color,
 ) {
     fun fg(index: Int): Color = colors[index.coerceIn(0, 15)]
     fun bg(index: Int): Color =
@@ -485,6 +487,8 @@ val DarkTerminalPalette = TerminalPalette(
     colors = DarkTermColors,
     cursorBg = Color(0xFFC0CAF5),
     cursorFg = Color(0xFF1A1B26),
+    searchBg = Color(0xFF665C1E),
+    searchCurrentBg = Color(0xFFE0AF68),
 )
 
 val LightTerminalPalette = TerminalPalette(
@@ -493,6 +497,8 @@ val LightTerminalPalette = TerminalPalette(
     colors = LightTermColors,
     cursorBg = Color(0xFF1A1B26),
     cursorFg = Color(0xFFF5F5F0),
+    searchBg = Color(0xFFFFE082),
+    searchCurrentBg = Color(0xFFFFB300),
 )
 
 val RetroTerminalPalette = TerminalPalette(
@@ -501,6 +507,8 @@ val RetroTerminalPalette = TerminalPalette(
     colors = RetroTermColors,
     cursorBg = Color(0xFFC0C0C0),
     cursorFg = Color(0xFF000000),
+    searchBg = Color(0xFF555500),
+    searchCurrentBg = Color(0xFFFFFF55),
 )
 
 fun terminalPaletteFor(theme: AppTheme): TerminalPalette = when (theme) {

@@ -18,6 +18,7 @@ import dev.studiorizi.mterm.core.session_core.SessionManager
 import dev.studiorizi.mterm.full.backend.AndroidShellBackend
 import dev.studiorizi.mterm.full.backend.BridgeServer
 import dev.studiorizi.mterm.full.backend.LinuxPaths
+import dev.studiorizi.mterm.full.backend.ssh.SshBackend
 import dev.studiorizi.mterm.core.session_core.SessionMode
 import dev.studiorizi.mterm.core.terminal_session.TerminalSessionHost
 import dev.studiorizi.mterm.full.MainActivity
@@ -158,6 +159,11 @@ class TerminalService : Service() {
                     ),
                 ),
                 SessionMode.DEBIAN_CHROOT to ChrootBackend(rootfsDir = debianDir),
+                // SSH shares the app-private dir for known_hosts; secrets
+                // stay in the in-memory SshCredentialStore (never on disk).
+                SessionMode.SSH to SshBackend(
+                    knownHostsFile = File(filesDir, "ssh/known_hosts"),
+                ),
             ),
         )
         return TerminalSessionHost(

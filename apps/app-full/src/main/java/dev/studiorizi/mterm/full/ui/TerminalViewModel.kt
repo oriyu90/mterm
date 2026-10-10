@@ -14,6 +14,10 @@ import dev.studiorizi.mterm.core.linux_core.ShellArgv
 import dev.studiorizi.mterm.core.process_supervisor.RiskLevel
 import dev.studiorizi.mterm.core.root_core.RootManager
 import dev.studiorizi.mterm.core.session_core.SessionMode
+import dev.studiorizi.mterm.full.backend.ssh.SshCredentialStore
+import dev.studiorizi.mterm.full.backend.ssh.SshEvents
+import dev.studiorizi.mterm.full.backend.ssh.SshParams
+import dev.studiorizi.mterm.full.backend.ssh.SshTrust
 import dev.studiorizi.mterm.core.session_core.SessionRuntime
 import dev.studiorizi.mterm.core.session_core.SpawnFailure
 import dev.studiorizi.mterm.core.terminal_emulator.TerminalEmulator
@@ -52,6 +56,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private val _rootChrootSupported = MutableStateFlow<Boolean?>(null)
     val rootChrootSupported: StateFlow<Boolean?> = _rootChrootSupported.asStateFlow()
 
+    /** Current host-key trust prompt (null when none). */
+    val sshTrustRequests: StateFlow<List<SshTrust.Request>> = SshTrust.pending
+
     private var bound = false
     private var bridgeServer: dev.studiorizi.mterm.full.backend.BridgeServer? = null
 
@@ -73,7 +80,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             viewModelScope.launch {
                 host.lastFailure.collect { failure ->
                     if (failure != null) {
-                        _lastError.value = failureMessage(failure)
+                        _lastError.value = sshAwareMessage(failure)
                         host.clearLastFailure()
                     }
                 }
@@ -111,6 +118,11 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     fun bind(context: Context) {
         if (bound) return
         bound = true
+        // NOTE: no direct collector on SshEvents.errors here. SSH detail is
+        // consumed via tryReceive() in sshAwareMessage() (same ordering as
+        // the typed failure). A second consumer would race tryReceive: a
+        // suspended for-loop receiver wins the rendezvous and the typed
+        // path would fall back to the generic message.
         val intent = Intent(context, TerminalService::class.java)
         try {
             context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
@@ -178,8 +190,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         result.exceptionOrNull()?.let { _lastError.value = it.message }
     }
 
-    fun newRootChroot(context: Context) {
-        if (_rootChrootSupported.value != true) {
+    fun newRootChroot(context: Context) {        if (_rootChrootSupported.value != true) {
             _lastError.value = context.getString(R.string.error_root_unsupported)
             return
         }
@@ -197,10 +208,80 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         result.exceptionOrNull()?.let { _lastError.value = it.message }
     }
 
+    /**
+     * Opens an SSH session. Secrets are staged in [SshCredentialStore] under
+     * one-shot tokens; only the tokens cross into the service. Returns the
+     * new session id (or null when the service isn't bound yet / input bad).
+     */
+    fun newSsh(
+        context: Context,
+        host: String,
+        port: Int,
+        user: String,
+        password: CharArray?,
+        keyPem: ByteArray?,
+        keyPassphrase: CharArray?,
+    ): String? {
+        TerminalService.start(context)
+        val hostRef = _host.value
+        if (hostRef == null) {
+            _lastError.value = context.getString(R.string.error_starting_retry)
+            bind(context)
+            return null
+        }
+        val trimmedHost = SshParams.normalizeInput(host)
+        val trimmedUser = SshParams.normalizeInput(user)
+        if (trimmedHost.isEmpty() || trimmedUser.isEmpty() ||
+            port !in SshParams.MIN_PORT..SshParams.MAX_PORT ||
+            (password == null && keyPem == null)
+        ) {
+            _lastError.value = context.getString(R.string.ssh_invalid)
+            return null
+        }
+        val credToken: String
+        val auth: String
+        val passToken: String?
+        if (keyPem != null) {
+            credToken = SshCredentialStore.putKey(keyPem)
+            passToken = keyPassphrase?.let { SshCredentialStore.putPassphrase(it) }
+            auth = SshParams.AUTH_KEY
+        } else {
+            credToken = SshCredentialStore.putPassword(password!!)
+            passToken = null
+            auth = SshParams.AUTH_PASSWORD
+        }
+        val result = hostRef.open(
+            mode = SessionMode.SSH,
+            title = context.getString(R.string.ssh) + " " + trimmedUser + "@" + trimmedHost,
+            command = listOf("ssh", "$trimmedUser@$trimmedHost"),
+            env = buildMap {
+                put(SshParams.ENV_HOST, trimmedHost)
+                put(SshParams.ENV_PORT, port.toString())
+                put(SshParams.ENV_USER, trimmedUser)
+                put(SshParams.ENV_AUTH, auth)
+                put(SshParams.ENV_CRED, credToken)
+                if (passToken != null) put(SshParams.ENV_KEY_PASS, passToken)
+            },
+        )
+        result.exceptionOrNull()?.let {
+            _lastError.value = it.message
+            SshCredentialStore.wipe(credToken)
+            passToken?.let { SshCredentialStore.wipe(it) }
+            return null
+        }
+        return result.getOrNull()
+    }
+
+    fun decideSshTrust(id: String, decision: SshTrust.Decision) {
+        SshTrust.decide(id, decision)
+        if (decision == SshTrust.Decision.DENY) {
+            _lastError.value = getApplication<Application>().getString(R.string.ssh_denied)
+        }
+    }
+
     fun write(sessionId: String, data: ByteArray) {
         _host.value?.write(sessionId, data)
     }
-
     fun resize(sessionId: String, rows: Int, cols: Int) {
         _host.value?.resize(sessionId, rows, cols)
     }
@@ -226,8 +307,23 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         _lastExit.value = null
     }
 
-    private fun failureMessage(failure: SpawnFailure): String {
-        val context = getApplication<Application>()
+    /**
+     * Failure text that prefers the SSH backend's human detail. The backend
+     * sends [SshEvents.errors] before throwing (same coroutine, ordered), so
+     * by the time the typed failure arrives the detail is already queued and
+     * [tryReceive] picks it deterministically — no race with the generic
+     * mapping. Non-SSH BACKEND_UNSUPPORTED falls back to the generic text.
+     */
+    private fun sshAwareMessage(failure: SpawnFailure): String {
+        if (failure == SpawnFailure.BACKEND_UNSUPPORTED) {
+            SshEvents.errors.tryReceive().getOrNull()?.let { detail ->
+                return getApplication<Application>().getString(R.string.ssh_failed, detail)
+            }
+        }
+        return failureMessage(failure)
+    }
+
+    private fun failureMessage(failure: SpawnFailure): String {        val context = getApplication<Application>()
         return when (failure) {
             SpawnFailure.PTY_UNAVAILABLE -> context.getString(R.string.error_pty_unavailable)
             SpawnFailure.PROOT_MISSING -> context.getString(R.string.error_proot_missing)

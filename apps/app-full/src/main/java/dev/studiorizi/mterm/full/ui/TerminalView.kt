@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.studiorizi.mterm.core.terminal_emulator.Cell
 import dev.studiorizi.mterm.core.terminal_emulator.TerminalEmulator
+import dev.studiorizi.mterm.core.terminal_emulator.SearchHit
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -60,6 +61,13 @@ import kotlinx.coroutines.launch
  * Text input arrives via the invisible [BasicTextField] (IME; its own cursor
  * is hidden) and hardware key events (control keys, arrows, enter,
  * backspace). Size changes debounce into [onResize] (rows/cols for TIOCSWINSZ).
+ *
+ * Find-in-terminal: [highlights] maps unified line indexes (scrollback first,
+ * then screen — the same addressing [dev.studiorizi.mterm.core.terminal_emulator.TerminalSearch]
+ * returns) to char ranges in the rendered line text; [currentHighlight]
+ * marks the active match. [revealRequest] is a (line, sequence) pair that
+ * scrolls the line into view; the sequence must change for each navigation
+ * so steady output ticks don't yank the scroll position.
  */
 @Composable
 fun TerminalView(
@@ -71,6 +79,9 @@ fun TerminalView(
     onResize: (rows: Int, cols: Int) -> Unit,
     modifier: Modifier = Modifier,
     palette: TerminalPalette = DarkTerminalPalette,
+    highlights: Map<Int, List<IntRange>> = emptyMap(),
+    currentHighlight: SearchHit? = null,
+    revealRequest: Pair<Int, Int>? = null,
 ) {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -95,6 +106,10 @@ fun TerminalView(
             val rows = (0 until emu.rows).mapNotNull { emu.getRowCells(it) }
             Snapshot(
                 back = back,
+                // Unified line index of back[0] (scrollback-first addressing,
+                // shared with TerminalSearch results).
+                backFrom = from,
+                sbCount = sbCount,
                 rows = rows,
                 cursorRow = emu.cursorRow,
                 cursorCol = emu.cursorCol,
@@ -108,6 +123,27 @@ fun TerminalView(
             scroll.value >= scroll.maxValue - SCROLL_STICK_PX
         ) {
             scroll.scrollTo(scroll.maxValue)
+        }
+    }
+
+    // Find navigation: reveal the active match line. Keyed on the request
+    // pair only — output ticks must not move the viewport. The snapshot is
+    // read through updated-state so navigation always maps against fresh
+    // content without re-firing on every tick.
+    val lineHeightPx = with(density) { (fontSizeSp * LINE_HEIGHT_FACTOR).sp.toPx() }
+    val latestSnapshot = androidx.compose.runtime.rememberUpdatedState(snapshot)
+    LaunchedEffect(revealRequest) {
+        val target = revealRequest?.first
+        val snap = latestSnapshot.value
+        if (target != null && snap != null) {
+            val ordinal = if (target < snap.sbCount) {
+                target - snap.backFrom
+            } else {
+                snap.back.size + (target - snap.sbCount)
+            }
+            if (ordinal >= 0 && ordinal < snap.back.size + snap.rows.size) {
+                scroll.scrollTo((ordinal * lineHeightPx).toInt().coerceAtLeast(0))
+            }
         }
     }
 
@@ -149,10 +185,23 @@ fun TerminalView(
                     .fillMaxWidth()
                     .verticalScroll(scroll),
             ) {
-                snapshot.back.forEach { cells ->
-                    TerminalLine(cells, cursorCol = -1, showCursor = false, fontSizeSp = fontSizeSp, lineHeight = lineHeight, palette = palette)
+                snapshot.back.forEachIndexed { index, cells ->
+                    val unified = snapshot.backFrom + index
+                    TerminalLine(
+                        cells,
+                        cursorCol = -1,
+                        showCursor = false,
+                        fontSizeSp = fontSizeSp,
+                        lineHeight = lineHeight,
+                        palette = palette,
+                        highlights = highlights[unified].orEmpty(),
+                        current = currentHighlight
+                            ?.takeIf { it.line == unified }
+                            ?.let { it.startCol until it.endCol },
+                    )
                 }
                 snapshot.rows.forEachIndexed { index, cells ->
+                    val unified = snapshot.sbCount + index
                     TerminalLine(
                         cells,
                         cursorCol = if (index == snapshot.cursorRow) snapshot.cursorCol else -1,
@@ -160,6 +209,10 @@ fun TerminalView(
                         fontSizeSp = fontSizeSp,
                         lineHeight = lineHeight,
                         palette = palette,
+                        highlights = highlights[unified].orEmpty(),
+                        current = currentHighlight
+                            ?.takeIf { it.line == unified }
+                            ?.let { it.startCol until it.endCol },
                     )
                 }
             }
@@ -238,12 +291,20 @@ fun TerminalView(
 
 private data class Snapshot(
     val back: List<Array<Cell>>,
+    /** Unified line index of back[0]; rows[r] is sbCount + r. */
+    val backFrom: Int,
+    val sbCount: Int,
     val rows: List<Array<Cell>>,
     val cursorRow: Int,
     val cursorCol: Int,
 )
 
-/** One terminal row as colored text; the cursor cell renders reversed. */
+/**
+ * One terminal row as colored text; the cursor cell renders reversed.
+ * Find matches tint the background ([highlights], with [current] brightest).
+ * Char offsets address the rendered text (continuation cells skipped), the
+ * same addressing TerminalSearch uses.
+ */
 @Composable
 private fun TerminalLine(
     cells: Array<Cell>,
@@ -252,8 +313,21 @@ private fun TerminalLine(
     fontSizeSp: Float,
     lineHeight: androidx.compose.ui.unit.TextUnit,
     palette: TerminalPalette,
+    highlights: List<IntRange> = emptyList(),
+    current: IntRange? = null,
 ) {
-    val annotated = remember(cells, cursorCol, showCursor, palette) {
+    val annotated = remember(cells, cursorCol, showCursor, palette, highlights, current) {
+        // Rendered char index -> cell index (continuation cells skipped).
+        val charToCell = IntArray(cells.size)
+        var charCount = 0
+        for (col in cells.indices) {
+            if (cells[col].isContinuation()) {
+                charToCell[col] = -1
+            } else {
+                charToCell[col] = charCount++
+            }
+        }
+        fun matchAt(charIdx: Int): Boolean = highlights.any { charIdx in it }
         buildAnnotatedString {
             var col = 0
             var rendered = 0
@@ -263,10 +337,15 @@ private fun TerminalLine(
                     col++
                     continue
                 }
+                val charIdx = charToCell[col]
                 val isCursor = showCursor && col == cursorCol
                 val fg = if (isCursor) palette.cursorFg else palette.fg(cell.fg)
                 val bg = if (isCursor) {
                     palette.cursorBg
+                } else if (current != null && charIdx in current) {
+                    palette.searchCurrentBg
+                } else if (matchAt(charIdx)) {
+                    palette.searchBg
                 } else {
                     palette.bg(cell.bg)
                 }

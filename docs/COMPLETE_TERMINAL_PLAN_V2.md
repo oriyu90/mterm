@@ -44,10 +44,33 @@
    タップ E2E は当該デバイスでは検証不能のため）
 2. ✅ R2-B1: 端末検索 core API（`TerminalSearch`: scrollback＋画面の統一
    index 検索、大文字小文字無視切替、URL 抽出＋末尾句読点 trim）＋ 8 tests
-3. R2-B2: 検索バー UI（次/前、ハイライト）＋長押し選択コピー＋URL タップ open
-4. R2-C: split 表示（2 ペイン）
-5. R2-D: SSH（sshj 依存の是非・鍵管理設計から。要相談）
-6. R2-E: modern/remote 配線評価、BackupAgent（別途）
+3. ✅ R2-B2: 検索バー UI（件数・↑↓・一致行コピー・ハイライト・追従スクロール）
+   ＋ Links 一覧（open/copy）— TB710FU 実機 PASS（1/4→2/4、行コピー・URL
+   コピーは bridge pbpaste で内容一致まで検証）
+4. ✅ R2-C: split 2 ペイン（独立入力・独立 Find/Links、選択チップ）— 実機 PASS
+5. ✅ R2-D: SSH 実装（sshj 0.39.0）
+   - 輸送 `SshConnection` ＋ `SshBackend`（PTY パイプ橋渡し、pid=-1 で監視除外）
+     ＋ `SshParams` 検証 ＋ `SshCredentialStore`（ secrets はメモリのみ、
+     認証後 wipe）＋ `SshTrust`（unknown key は指紋表示→今回のみ/常に/拒否、
+     常には `[host]:port` 形式で known_hosts 追記 — 非標準 port 対応のバグを
+     JVM テストで潰した）＋ `SshEvents` 詳細経路（汎用 BACKEND_UNSUPPORTED に
+     上書きされないよう tryReceive 決定的一本化 — 実機で再現・修正）
+   - ダイアログ（host/port/user/password/鍵 SAF 選択＋ pass 欄）＋全角正規化
+     （JA IME 対策、実機で発覚）＋ port ASCII 数字限定
+   - 検証: MINA 内蔵サーバとの実プロトコル 3 tests（echo/auth 成否/trust 永続）
+     ＋ TB710FU で validation・到達不能 host の clean failure（`SSH failed:
+     connect…` 表示、クラッシュなし）
+   - 実機フル接続 E2E は VPN 制約で保留（到達可能な SSH サーバなし。VPN 停止後
+     に Mac sshd 宛てで実施予定）。信頼ダイアログの実機操作も同条件で保留
+     （JVM では承認フロー検証済み）
+   - R8 対応: GSSAPI/JAAS＋eddsa 内部 API の dontwarn（GSS は未使用、ed25519
+     host 鍵は Android 上で失敗する可能性あり＝制限事項として明記）。
+     release ビルド（minify）通過確認済み
+6. R2-E 判定（今回の結論）:
+   - modern/remote 配線: 見送り（計画通り Full に集中。remote の SshBackend は
+     stub のまま。full の実輸送は将来 `:core:ssh` 抽出で共有可能）
+   - BackupAgent: 不要（`allowBackup=true` の Auto Backup が prefs を既に
+     対象化。SSH secrets は設計上ディスクに置かないため対象外で正しい）
 
 ## 4. 依存関係図（今回分）
 
