@@ -37,12 +37,76 @@ Android shell には node も python もない。以下4点の連鎖的問題が
 
 ### P4. Node / npm / CLI / localhost 検証が存在しない
 - preset・doctor・E2E は計画書の記述のみでコードなし。
-- 対応: Node 24 LTS 公式 arm64 tarball を preset として取得→Debian 内に配置。
-  検証は `node/npm --version`、OpenCode（Go 製単体バイナリ）を
-  `--version` で確認、Claude Code は `npm i -g`＋`--version` まで
-  （OAuth はユーザー操作のため対象外と明示）。
-  localhost は Debian 内 `python3 -m http.server`＋Android 側 `curl` で到達確認
-  （同一 netns のため到達可能）。
+- 対応: 公式 Node 24.21.0 LTS arm64 tarball をアプリ側で取得→
+  ゲスト `~/.local/node` に展開（`.tar.xz` 対応のため純 Java xz を vendoring、
+  `stripComponents=1` 対応）。apt 方式は dpkg の hardlink 問題（P10）で不採用。
+  `~/.profile` に PATH 追記（冪等）。doctor は明示 PATH で検証。
+  Claude は `npm i -g`＋`--version` まで（OAuth はユーザー操作のため対象外と明示）。
+  OpenCode は公式 install script。localhost は Debian 内
+  `python3 -m http.server`＋同 guest 内 `curl` で到達確認。
+
+### P10. hardlink(2) が app-private で EPERM（実機で反証→設計に反映）
+- `ln` がアプリ UID でも `Permission denied`（`touch`/`mkdir`/`rename`/`cp` は可、
+  shell コンテキストの `/data/local/tmp` では touch すら不可）。
+  `dpkg` の statusDB バックアップが hardlink 必須のため `apt-get install` は
+  不可（`apt-get update` のリスト取得は可）。git の local clone 最適化も不可。
+- 対応: インストーラ類は hardlink を使わない設計に限定（copy/rename のみ）。
+  `TarExtractor` の hardlink は作成失敗時に skip（既存動作を維持）。
+  apt install 系 preset は採用しない。
+
+### P11. node-tar の LongLink 名解決バグ（単体テストで反証→修正済み）
+- node 公式 tarball は 100 バイトに収まらないパスを GNU LongLink（`L`）で
+  記録する。実装当初は strip 処理がヘッダ名（切詰め済み）に適用され、
+  LongLink 解決が無視されていたため npm tree の ~90% が欠落
+ （`graceful-fs` 不在で npm が起動不能に）。
+- 対応: strip は解決済み名に適用。`NodeTarballReproTest`（最小ケース＋strip＋
+  実 tarball 4000+ entries 検証）で回帰防止。
+
+### P12. 対話入力が日本語 IME で全角化＋分割確定で重複（実機で反証→修正済み）
+- `BasicTextField`（既定 Text タイプ）＋ Gboard 日本語フリック環境では、
+  ASCII 確定が全角（U+FF48〜）に変換される（logcat で `U+ff48` を確認）。
+  `KeyboardType.Ascii` 指定でも日本語レイアウトは無視するため、
+  `Password` タイプ（半角英数固定・変換/サジェストなし）＋ `ImeAction.Go`
+  （ソフト Enter を CR として送信、singleLine では DONE になるだけ）を採用。
+- さらに `input text` 複数文字確定は Gboard が 1,2→1,2,3,4 のように
+  先頭から再送する。実装当初の「毎回クリア＋末尾差分」はこれと競合して
+  `echo hi`→`eechho  hi` の重複を生んだ（logcat 連番で確定）。
+- 対応: バッファをミラー保持し最長共通接頭辞で差分のみ送信
+  （削除は DEL/文字）。クリアは submit（Go/Enter）時とセッション切替時のみ。
+  貼り付け複数文字が正確に 1 回届くことを TB710FU 実機で確認。
+  全角保持自体は `TerminalEmulatorTest`（fullwidth round-trip）で保証。
+
+### P5. proot の long option は `=` 結合必須（実機で反証→修正済み）
+- 当初 `--rootfs <dir>`（空白区切り）で実装していたが、実バイナリ
+  （proot 5.1.107.96）は `option '--rootfs' and its value must be
+  separated by '='` で拒否。`--rootfs=<dir>` / `--bind=` / `--cwd=` に修正。
+  実機エラー文が根拠。`ProotArgvTest` に回帰テスト追加。
+
+### P6. `PROOT_TMP_DIR` 未設定では起動不可（実機で反証→修正済み）
+- Termux 系 proot は prefix 内 TMPDIR を既定とするため、存在しないパスで
+  `can't create temporary directory` となる。`filesDir/tmp` を作成し
+  `PROOT_TMP_DIR` として付与（`ProotArgv.hostEnv`）。
+
+### P7. 外部 loader がないと全 exec が ENOENT（実機＋ソースで特定→修正済み）
+- Termux ビルドは `PROOT_UNBUNDLE_LOADER` 定義のため、exec ごとに外部
+  `loader` バイナリを必要とする（`PROOT_LOADER` env または termux prefix
+  の固定パス）。未同梱時は `get_loader_path()==NULL` → -ENOENT。
+  ソース（`src/execve/enter.c`）と strings の両方で確認。
+- 対応: `loader-arm64-v8a`＋`loader32-arm` を同梱し `PROOT_LOADER[_32]` を付与。
+  静的リンクのため 16KB 問題なし。
+
+### P8. Ed25519 は API 33+ のみ（公式リファレンスで確認→修正済み）
+- Android の `Signature/KeyFactory` アルゴリズム表で Ed25519 は 33+。
+  API 30 実機で manifest 検証が fail-closed となることを確認。
+- 対応: RSA-2048（SHA256withRSA、全 API 可）の併用署名 `signatureRsa` を追加。
+  ポリシー: Ed25519  capable → Ed25519 必須（RSA でマスク不可）、
+  非 capable → RSA 必須。秘密鍵は common-rules に保管、公開鍵のみ埋め込み。
+  `ManifestSignaturePolicyTest` で行列検証。
+
+### P9. dpkg は非 root UID を拒否（実機で反証→修正済み）
+- `apt-get install` が `dpkg: error: requested operation requires
+  superuser privilege` で失敗。proot-distro 同様 `-0`（fake root）を付与。
+  ホスト側の所有者は app UID のまま、Android サンドボックスも維持。
 
 ## 3. 修正計画（順序）
 

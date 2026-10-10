@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,6 +37,8 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,7 +76,9 @@ fun TerminalView(
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
     var hasFocus by remember { mutableStateOf(false) }
-    var imeBuffer by remember { mutableStateOf("") }
+    // Keyed on the session's emulator: switching sessions starts clean so
+    // the prefix-diff never leaks one session's text into another.
+    var imeBuffer by remember(emulator) { mutableStateOf("") }
     var lastSizePx by remember { mutableStateOf(0 to 0) }
     var resizeJob by remember { mutableStateOf<Job?>(null) }
     val scroll = rememberScrollState()
@@ -160,22 +166,42 @@ fun TerminalView(
         }
         // Invisible IME input: captures software-keyboard text. Its own cursor
         // is hidden (transparent) so only the terminal block cursor shows.
-        // The buffer resets after every change so composition text never
-        // accumulates (and never leaks into accessibility services); bytes are
-        // forwarded to the PTY immediately. Cleared semantics keep typed
-        // commands out of the accessibility tree (no secrets in TalkBack).
+        // The buffer MIRRORS the IME content (never cleared mid-stream):
+        // clearing unilaterally races Gboard's multi-step commits, which
+        // restart from scratch and corrupt pastes into duplicated fragments.
+        // Instead we diff by longest common prefix and forward only the
+        // delta (suffix bytes, DEL per removed char). The buffer resyncs
+        // (clears) on submit, when the IME is idle. Cleared semantics keep
+        // typed commands out of the accessibility tree (no secrets in
+        // TalkBack).
         BasicTextField(
             value = imeBuffer,
             onValueChange = { next ->
-                if (next.length > imeBuffer.length) {
-                    val inserted = next.substring(imeBuffer.length)
-                    onInput(inserted.toByteArray(Charsets.UTF_8))
-                } else if (next.length < imeBuffer.length) {
-                    // Backspace via IME delete.
-                    onInput(byteArrayOf(0x7F))
+                val common = imeBuffer.commonPrefixWith(next).length
+                val removed = (imeBuffer.length - common).coerceAtLeast(0)
+                repeat(removed) { onInput(byteArrayOf(0x7F)) }
+                if (next.length > common) {
+                    onInput(next.substring(common).toByteArray(Charsets.UTF_8))
                 }
-                imeBuffer = ""
+                imeBuffer = next
             },
+            // Terminals need raw ASCII: Password forces Gboard-class IMEs into
+            // half-width alphanumeric with no conversion or suggestions
+            // (Ascii alone is ignored by the Japanese layout). No visual
+            // transformation is applied, so text stays visible. Go submits
+            // the command (singleLine would otherwise swallow soft Enter).
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Password,
+                autoCorrectEnabled = false,
+                imeAction = ImeAction.Go,
+            ),
+            keyboardActions = KeyboardActions(
+                onGo = {
+                    onInput(byteArrayOf(0x0D))
+                    imeBuffer = ""
+                },
+            ),
+            singleLine = true,
             modifier = Modifier
                 .fillMaxSize()
                 .clearAndSetSemantics {}

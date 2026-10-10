@@ -15,6 +15,7 @@ class ProotBackendTest {
         bridgeDir = File("/data/bridge"),
         mirrorDir = File("/data/mirror"),
         prootBin = File("/data/proot"),
+        tmpDir = File("/data/tmp"),
     )
 
     private fun spec(command: List<String> = emptyList()) = SessionSpec(
@@ -30,11 +31,9 @@ class ProotBackendTest {
     fun prepare_buildsArgvWithRootfsAndBinds() = runTest {
         val prepared = backend().prepare(spec())
         val argv = prepared.argv
-        val rootfsIndex = argv.indexOf("--rootfs")
-        assertTrue(rootfsIndex >= 0)
-        assertEquals("/data/rootfs", argv[rootfsIndex + 1])
-        assertTrue(argv.contains("/data/bridge:/run/android-bridge"))
-        assertTrue(argv.contains("/data/mirror:/mnt/shared"))
+        assertTrue(argv.contains("--rootfs=/data/rootfs"))
+        assertTrue(argv.contains("--bind=/data/bridge:/run/android-bridge"))
+        assertTrue(argv.contains("--bind=/data/mirror:/mnt/shared"))
         assertTrue(argv.takeLast(2) == ProotBackend.DEFAULT_SHELL)
     }
 
@@ -64,6 +63,7 @@ class ProotBackendTest {
             bridgeDir = java.io.File("/tmp"),
             mirrorDir = java.io.File("/tmp"),
             prootBin = java.io.File("/nonexistent-proot-xyz"),
+            tmpDir = java.io.File("/tmp"),
         )
         try {
             missing.spawn(missing.prepare(spec()), 24, 80)

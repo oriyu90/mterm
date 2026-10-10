@@ -150,7 +150,7 @@
     <string name="linux_doctor_node">Node.js</string>
     <string name="linux_doctor_localhost">Localhost server</string>
     <string name="linux_preset_title">Presets</string>
-    <string name="linux_preset_node">Install Node.js (apt)</string>
+    <string name="linux_preset_node">Install Node.js (official tarball)</string>
     <string name="linux_preset_claude">Install Claude Code (npm)</string>
     <string name="linux_preset_opencode">Install OpenCode</string>
     <string name="linux_running">Running…</string>

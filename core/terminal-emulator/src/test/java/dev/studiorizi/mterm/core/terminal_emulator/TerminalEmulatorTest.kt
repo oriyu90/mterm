@@ -174,6 +174,17 @@ class TerminalEmulatorTest {
     }
 
     @Test
+    fun `fullwidth latin from IME fullwidth mode round-trips`() {
+        // Japanese IMEs commit ASCII as fullwidth (U+FF41-FF5A) in fullwidth
+        // alphanumeric mode; the emulator must store them verbatim
+        // (2 columns each) rather than corrupting the line.
+        val t = TerminalEmulator(24, 80)
+        t.write("\uFF48\uFF45\uFF4C\uFF4C\uFF4F".bytes())
+        assertEquals("\uFF48\uFF45\uFF4C\uFF4C\uFF4F", t.getLine(0))
+        assertEquals(10, t.cursorCol)
+    }
+
+    @Test
     fun `resize clamps and preserves content`() {
         val t = TerminalEmulator(24, 80)
         t.write("hello".bytes())

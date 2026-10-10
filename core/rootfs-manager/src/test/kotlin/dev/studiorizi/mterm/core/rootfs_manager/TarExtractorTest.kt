@@ -9,7 +9,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class TarGzExtractorTest {
+class TarExtractorTest {
 
     /** Minimal USTAR writer for fixtures (name, mode, mtime, type, link, data). */
     private fun ustar(
@@ -73,7 +73,7 @@ class TarGzExtractorTest {
             val archiveFile = File(dir, "a.tar.gz")
             archiveFile.writeBytes(archive)
             val base = File(dir, "root")
-            val stats = TarGzExtractor.extract(archiveFile, base).getOrThrow()
+            val stats = TarExtractor.extract(archiveFile, base).getOrThrow()
             assertEquals(4, stats.entries)
             assertEquals("nameserver 1.1.1.1\n", File(base, "etc/resolv.conf").readText())
             assertTrue(File(base, "bin/tool").canExecute())
@@ -98,7 +98,7 @@ class TarGzExtractorTest {
             val archiveFile = File(dir, "a.tar.gz")
             archiveFile.writeBytes(archive)
             val base = File(dir, "root")
-            val stats = TarGzExtractor.extract(archiveFile, base).getOrThrow()
+            val stats = TarExtractor.extract(archiveFile, base).getOrThrow()
             assertEquals("ok", File(base, "ok.txt").readText())
             assertEquals(2, stats.skipped)
             assertTrue(!File(dir, "evil").exists())
@@ -119,10 +119,48 @@ class TarGzExtractorTest {
             val archiveFile = File(dir, "a.tar.gz")
             archiveFile.writeBytes(archive)
             val base = File(dir, "root")
-            val stats = TarGzExtractor.extract(archiveFile, base).getOrThrow()
+            val stats = TarExtractor.extract(archiveFile, base).getOrThrow()
             assertTrue(!File(base, "evil-link").exists())
             assertTrue(!File(base, "dir/up-link").exists())
             assertEquals(2, stats.skipped)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun extract_xzRoundTrip() = runTest {
+        val gzipBytes = gzip(ustar("xz-ok.txt", data = "xz works\n".toByteArray()))
+        // Re-encode the same tar (minus gzip wrapper) as xz via JDK? JDK has
+        // no xz encoder, so compress with the vendored decoder's counterpart:
+        // build the tar stream manually then wrap with XZOutputStream.
+        val tarStream = run {
+            val out = java.io.ByteArrayOutputStream()
+            // Reuse ustar blocks: strip the gzip framing by decoding first.
+            val decoded = mutableListOf<ByteArray>()
+            java.util.zip.GZIPInputStream(gzipBytes.inputStream()).use { gz ->
+                val buf = ByteArray(8192)
+                while (true) {
+                    val n = gz.read(buf)
+                    if (n < 0) break
+                    decoded.add(buf.copyOfRange(0, n))
+                }
+            }
+            val combined = decoded.fold(ByteArray(0)) { acc, b -> acc + b }
+            val xzOut = java.io.ByteArrayOutputStream()
+            org.tukaani.xz.XZOutputStream(xzOut, org.tukaani.xz.LZMA2Options()).use {
+                it.write(combined)
+            }
+            xzOut.toByteArray()
+        }
+        val dir = tempDir()
+        try {
+            val archiveFile = File(dir, "a.tar.xz")
+            archiveFile.writeBytes(tarStream)
+            val base = File(dir, "root")
+            val stats = TarExtractor.extract(archiveFile, base).getOrThrow()
+            assertEquals("xz works\n", File(base, "xz-ok.txt").readText())
+            assertTrue(stats.entries >= 1)
         } finally {
             dir.deleteRecursively()
         }
@@ -134,7 +172,7 @@ class TarGzExtractorTest {
         try {
             val archiveFile = File(dir, "a.tar.gz")
             archiveFile.writeText("plain text, not gzip")
-            val result = TarGzExtractor.extract(archiveFile, File(dir, "root"))
+            val result = TarExtractor.extract(archiveFile, File(dir, "root"))
             assertTrue(result.isFailure)
         } finally {
             dir.deleteRecursively()
@@ -149,7 +187,7 @@ class TarGzExtractorTest {
             val out = ByteArrayOutputStream()
             GZIPOutputStream(out).use { gz -> gz.write(full.copyOfRange(0, 700)) }
             archiveFile.writeBytes(out.toByteArray())
-            val result = TarGzExtractor.extract(archiveFile, File(archiveFile.parentFile, "root"))
+            val result = TarExtractor.extract(archiveFile, File(archiveFile.parentFile, "root"))
             assertTrue(result.isFailure)
         } finally {
             archiveFile.parentFile.deleteRecursively()

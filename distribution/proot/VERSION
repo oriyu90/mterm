@@ -1,6 +1,7 @@
 proot 5.1.107.96 (termux/proot family, aarch64)
 libtalloc 2.5.0 (aarch64)
 libandroid-shmem 0.7 (aarch64)
+loader + loader32 exec helpers (static; PROOT_LOADER/PROOT_LOADER_32 must point at them)
 source: https://packages.termux.dev/apt/termux-main (pool/main/p/proot, pool/main/libt/libtalloc, pool/main/liba/libandroid-shmem)
 upstream: https://github.com/termux/proot (GPL-2.0-only, see NOTICE)
 license text: https://raw.githubusercontent.com/termux/proot/master/COPYING

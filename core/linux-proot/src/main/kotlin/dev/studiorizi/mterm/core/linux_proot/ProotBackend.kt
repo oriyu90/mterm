@@ -28,6 +28,13 @@ class ProotBackend(
     private val bridgeDir: File,
     private val mirrorDir: File,
     private val prootBin: File,
+    private val tmpDir: File,
+    /**
+     * Resolves the live rootfs dir at spawn time. The installer publishes
+     * new versions while the service lives, so a constructor-time path
+     * would go stale; defaults to the constructor path for tests.
+     */
+    private val rootfsDirProvider: () -> File = { rootfsDir },
 ) : ExecutionBackend {
 
     override val mode: SessionMode = SessionMode.DEBIAN_PROOT
@@ -47,11 +54,12 @@ class ProotBackend(
         // Guest env travels inside argv (/usr/bin/env -i); the host env
         // carries only the loader path. See ProotArgv (single source of
         // truth shared with one-shot GuestProbe commands).
-        val argv = ProotArgv.build(prootBin, rootfsDir, bridgeDir, mirrorDir, tail)
+        val liveRootfs = runCatching { rootfsDirProvider() }.getOrDefault(rootfsDir)
+        val argv = ProotArgv.build(prootBin, liveRootfs, bridgeDir, mirrorDir, tail)
         return PreparedSession(
             spec = spec,
             argv = argv,
-            env = ProotArgv.hostEnv(prootBin),
+            env = ProotArgv.hostEnv(prootBin, tmpDir),
             // The native host chdir must stay on a real Android path; the guest
             // working directory is set by proot's --cwd.
             cwd = null,
@@ -66,15 +74,19 @@ class ProotBackend(
                     "proot binary not installed at ${prootBin.absolutePath}",
                 )
             }
-            if (!rootfsDir.isDirectory) {
+            // Guard against the same live dir the argv was built with (the
+            // installer may publish versions while the service lives).
+            val liveRootfs = ProotArgv.rootfsFromArgv(prepared.argv)
+            if (liveRootfs == null || !liveRootfs.isDirectory) {
                 throw SpawnException(
                     SpawnFailure.ROOTFS_MISSING,
-                    "Debian rootfs not installed at ${rootfsDir.absolutePath}",
+                    "Debian rootfs not installed at ${liveRootfs?.absolutePath ?: rootfsDir.absolutePath}",
                 )
             }
             // proot --bind fails on missing host dirs; create the shared dirs.
             runCatching { bridgeDir.mkdirs() }
             runCatching { mirrorDir.mkdirs() }
+            runCatching { tmpDir.mkdirs() }
             val process = PtyRuntime.spawn(
                 argv = prepared.argv,
                 env = prepared.env.toList(),

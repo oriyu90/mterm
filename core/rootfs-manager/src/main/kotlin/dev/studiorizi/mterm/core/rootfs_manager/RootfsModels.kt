@@ -48,4 +48,10 @@ data class RootfsManifest(
     val minAppVersion: Int,
     val createdAt: String,
     val signature: String = "",
+    /**
+     * RSA-2048 PKCS#1 v1.5 signature over the SAME canonical bytes, for
+     * API < 33 devices where platform Ed25519 is unavailable. May be empty
+     * on old manifests (then only Ed25519-capable runtimes accept them).
+     */
+    val signatureRsa: String = "",
 )

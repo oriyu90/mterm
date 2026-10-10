@@ -126,8 +126,16 @@ dependencies {
 // Runs before every asset merge so debug AND release APKs carry them.
 val syncProotAssets by tasks.registering(Copy::class) {
     from("${rootDir}/distribution/proot") {
-        include("proot-arm64-v8a", "libtalloc.so.2", "libandroid-shmem.so")
+        include(
+            "proot-arm64-v8a",
+            "loader-arm64-v8a",
+            "loader32-arm",
+            "libtalloc.so.2",
+            "libandroid-shmem.so",
+        )
         rename("proot-arm64-v8a", "proot")
+        rename("loader-arm64-v8a", "loader")
+        rename("loader32-arm", "loader32")
     }
     into(layout.buildDirectory.dir("generated/proot-assets/bin"))
 }

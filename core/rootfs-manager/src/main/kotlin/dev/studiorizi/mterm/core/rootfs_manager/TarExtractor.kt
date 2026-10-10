@@ -10,7 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Pure-JVM `.tar.gz` extractor for rootfs archives (no extra dependencies).
+ * Pure-JVM tar extractor for archives (`.tar.gz` via JDK, `.tar.xz` via the
+ * vendored xz library; format auto-detected by magic bytes).
  *
  * Parses USTAR/POSIX ustar headers manually over [GZIPInputStream]; every
  * entry passes through [TarSafety] (absolute/traversal rejection plus a
@@ -20,7 +21,7 @@ import kotlinx.coroutines.withContext
  * and sockets are skipped (unprivileged installs cannot create them, and a
  * debootstrap minbase must not contain any).
  */
-object TarGzExtractor {
+object TarExtractor {
 
     const val BLOCK = 512
 
@@ -30,6 +31,7 @@ object TarGzExtractor {
         archive: File,
         base: File,
         onProgress: (entries: Int) -> Unit = {},
+        stripComponents: Int = 0,
     ): Result<ExtractStats> = withContext(Dispatchers.IO) {
         try {
             if (!base.isDirectory && !base.mkdirs()) {
@@ -37,44 +39,59 @@ object TarGzExtractor {
                     IllegalStateException("cannot create $base"),
                 )
             }
-            archive.inputStream().buffered().use { raw ->
-                // Probe gzip magic before committing to the format.
-                val magic = ByteArray(2)
-                val read = raw.read(magic)
-                if (read < 2 || magic[0] != 0x1f.toByte() || magic[1] != 0x8b.toByte()) {
+            // Probe magic (gzip 1F 8B, xz FD 37 7A 58 5A 00) before
+            // committing to a decoder.
+            val magic = ByteArray(6)
+            archive.inputStream().buffered().use { probe ->
+                var filled = 0
+                while (filled < magic.size) {
+                    val got = probe.read(magic, filled, magic.size - filled)
+                    if (got < 0) break
+                    filled += got
+                }
+                if (filled < 2) {
                     return@withContext Result.failure(
-                        IllegalArgumentException("not a gzip archive: ${archive.name}"),
+                        IllegalArgumentException("empty archive: ${archive.name}"),
                     )
                 }
-                val rewind = object : InputStream() {
-                    var pos = 0
-                    override fun read(): Int =
-                        if (pos < read) magic[pos++].toInt() and 0xFF else raw.read()
-                    override fun read(b: ByteArray, off: Int, len: Int): Int {
-                        if (pos < read) {
-                            val n = minOf(len, read - pos)
-                            magic.copyInto(b, off, pos, pos + n)
-                            pos += n
-                            return n
-                        }
-                        return raw.read(b, off, len)
-                    }
+            }
+            val isGzip = magic[0] == 0x1f.toByte() && magic[1] == 0x8b.toByte()
+            val isXz = isXzMagic(magic)
+            if (!isGzip && !isXz) {
+                return@withContext Result.failure(
+                    IllegalArgumentException("unknown archive format: ${archive.name}"),
+                )
+            }
+            archive.inputStream().buffered().use { raw ->
+                val decoded: InputStream = if (isGzip) {
+                    GZIPInputStream(raw)
+                } else {
+                    org.tukaani.xz.XZInputStream(raw)
                 }
-                extractTar(GZIPInputStream(rewind), base, onProgress)
+                extractTar(decoded, base, onProgress, stripComponents)
             }
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
+    private fun isXzMagic(magic: ByteArray): Boolean =
+        magic.size >= 6 &&
+            magic[0] == 0xFD.toByte() && magic[1] == 0x37.toByte() &&
+            magic[2] == 0x7A.toByte() && magic[3] == 0x58.toByte() &&
+            magic[4] == 0x5A.toByte() && magic[5] == 0x00.toByte()
+
     private fun extractTar(
         input: InputStream,
         base: File,
         onProgress: (Int) -> Unit,
+        stripComponents: Int = 0,
     ): Result<ExtractStats> {
         var entries = 0
         var bytes = 0L
         var skipped = 0
+        var pendingLongName: String? = null
+        var pendingPaxPath: String? = null
         val header = ByteArray(BLOCK)
         while (true) {
             if (!readFully(input, header)) break // clean EOF at block boundary
@@ -88,7 +105,48 @@ object TarGzExtractor {
             val type = header[156].toInt().toChar()
             val linkName = headerString(header, 157, 100).trimEnd('\u0000')
             val dataBlocks = ((size + BLOCK - 1) / BLOCK).toInt()
-            val target = TarSafety.resolveUnder(base, fullName).getOrElse {
+            // GNU LongLink ('L'): payload is the full path of the NEXT entry.
+            // PAX extended header ('x' global 'g'): payload holds key=value
+            // records; only `path` matters here (node-tar emits truncated
+            // 100-byte names with the real path in PAX records).
+            if (type == 'L' || type == 'x' || type == 'g') {
+                val payload = ByteArray(size.toInt())
+                var filled = 0
+                while (filled < payload.size) {
+                    val got = input.read(payload, filled, payload.size - filled)
+                    if (got < 0) {
+                        return Result.failure(
+                            IllegalStateException("truncated extended header"),
+                        )
+                    }
+                    filled += got
+                }
+                skipBytes(input, (dataBlocks * BLOCK - size))
+                if (type == 'L') {
+                    pendingLongName = String(payload, Charsets.UTF_8).trimEnd('\u0000', '\n')
+                } else {
+                    parsePaxRecords(payload)?.let { pendingPaxPath = it }
+                }
+                continue
+            }
+            val rawName = pendingLongName ?: pendingPaxPath ?: fullName
+            pendingLongName = null
+            pendingPaxPath = null
+            // Strip leading components (e.g. node tarball top-level dir).
+            // NOTE: strip applies to rawName (LongLink/PAX-resolved), never
+            // to the possibly-truncated header name.
+            val stripped = if (stripComponents > 0) {
+                val parts = rawName.split('/').filter { it.isNotEmpty() }
+                if (parts.size <= stripComponents) {
+                    skipBytes(input, dataBlocks.toLong() * BLOCK)
+                    skipped++
+                    continue
+                }
+                parts.drop(stripComponents).joinToString("/")
+            } else {
+                rawName
+            }
+            val target = TarSafety.resolveUnder(base, stripped).getOrElse {
                 skipBytes(input, dataBlocks.toLong() * BLOCK)
                 skipped++
                 return@getOrElse null
@@ -107,7 +165,7 @@ object TarGzExtractor {
                             val got = input.read(buf, 0, want)
                             if (got < 0) {
                                 return Result.failure(
-                                    IllegalStateException("truncated entry: $fullName"),
+                                    IllegalStateException("truncated entry: $rawName"),
                                 )
                             }
                             out.write(buf, 0, got)
@@ -165,6 +223,28 @@ object TarGzExtractor {
         }
         onProgress(entries)
         return Result.success(ExtractStats(entries, bytes, skipped))
+    }
+
+    /**
+     * Parses PAX extended-header records (`<len> <key>=<value>\n`) and
+     * returns the `path` override, or null.
+     */
+    private fun parsePaxRecords(payload: ByteArray): String? {
+        var path: String? = null
+        var pos = 0
+        val text = String(payload, Charsets.UTF_8)
+        while (pos < text.length) {
+            val nl = text.indexOf('\n', pos)
+            if (nl < 0) break
+            val line = text.substring(pos, nl)
+            val eq = line.indexOf('=')
+            if (eq > 0) {
+                val key = line.substring(line.indexOf(' ') + 1, eq).trim()
+                if (key == "path") path = line.substring(eq + 1)
+            }
+            pos = nl + 1
+        }
+        return path?.takeIf { it.isNotEmpty() }
     }
 
     private fun headerString(header: ByteArray, off: Int, len: Int): String {

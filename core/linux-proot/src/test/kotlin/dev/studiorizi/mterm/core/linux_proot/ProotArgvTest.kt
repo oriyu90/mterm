@@ -15,14 +15,18 @@ class ProotArgvTest {
         val (proot, rootfs, bridge, mirror) = dirs()
         val argv = ProotArgv.build(proot, rootfs, bridge, mirror, emptyList())
         assertEquals(File("/data/part0/proot").absolutePath, argv[0])
-        val rootfsIndex = argv.indexOf("--rootfs")
-        assertTrue(rootfsIndex >= 0)
-        assertEquals("/data/part1", argv[rootfsIndex + 1])
-        assertTrue(argv.contains("/data/part2:/run/android-bridge"))
-        assertTrue(argv.contains("/data/part3:/mnt/shared"))
-        val cwdIndex = argv.indexOf("--cwd")
-        assertTrue(cwdIndex >= 0)
-        assertEquals("/home/user", argv[cwdIndex + 1])
+        // Long options take `=`-joined values (space form is rejected).
+        assertTrue(argv.contains("--rootfs=/data/part1"))
+        assertTrue(argv.contains("--bind=/data/part2:/run/android-bridge"))
+        assertTrue(argv.contains("--bind=/data/part3:/mnt/shared"))
+        assertTrue(argv.contains("--cwd=/home/user"))
+        // System binds give the guest working /dev//proc//sys (the tarball
+        // cannot carry device nodes).
+        assertTrue(argv.contains("--bind=/dev"))
+        assertTrue(argv.contains("--bind=/proc"))
+        assertTrue(argv.contains("--bind=/sys"))
+        assertTrue(argv.contains("-0"))
+        assertTrue(argv.contains("UV_USE_IO_URING=0"))
         assertTrue(argv.takeLast(2) == ProotArgv.DEFAULT_SHELL)
     }
 
@@ -48,9 +52,20 @@ class ProotArgvTest {
     }
 
     @Test
-    fun hostEnv_pointsAtBinaryDir() {
-        val env = ProotArgv.hostEnv(File("/data/bin/proot"))
-        assertEquals(1, env.size)
+    fun hostEnv_pointsAtBinaryDirTmpAndLoaders() {
+        val env = ProotArgv.hostEnv(File("/data/bin/proot"), File("/data/tmp"))
+        assertEquals(4, env.size)
         assertEquals("LD_LIBRARY_PATH=/data/bin", env[0])
+        assertEquals("PROOT_TMP_DIR=/data/tmp", env[1])
+        assertEquals("PROOT_LOADER=/data/bin/loader", env[2])
+        assertEquals("PROOT_LOADER_32=/data/bin/loader32", env[3])
+    }
+
+    @Test
+    fun rootfsFromArgv_roundTrips() {
+        val (proot, rootfs, bridge, mirror) = dirs()
+        val argv = ProotArgv.build(proot, rootfs, bridge, mirror, emptyList())
+        assertEquals(File("/data/part1"), ProotArgv.rootfsFromArgv(argv))
+        assertEquals(null, ProotArgv.rootfsFromArgv(listOf("proot", "--cwd=/x")))
     }
 }

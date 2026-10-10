@@ -150,7 +150,7 @@
     <string name="linux_doctor_node">Node.js</string>
     <string name="linux_doctor_localhost">ローカルサーバー</string>
     <string name="linux_preset_title">プリセット</string>
-    <string name="linux_preset_node">Node.js をインストール（apt）</string>
+    <string name="linux_preset_node">Node.js をインストール（公式 tarball）</string>
     <string name="linux_preset_claude">Claude Code をインストール（npm）</string>
     <string name="linux_preset_opencode">OpenCode をインストール</string>
     <string name="linux_running">実行中…</string>

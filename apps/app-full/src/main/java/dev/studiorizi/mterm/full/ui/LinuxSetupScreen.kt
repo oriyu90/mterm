@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.studiorizi.mterm.core.data.MTermPrefs
 import dev.studiorizi.mterm.core.linux_proot.GuestProbe
+import dev.studiorizi.mterm.core.linux_proot.NodePreset
 import dev.studiorizi.mterm.core.linux_proot.ProotInstaller
 import dev.studiorizi.mterm.core.rootfs_manager.InstallState
 import dev.studiorizi.mterm.core.rootfs_manager.RootfsChannel
@@ -122,12 +123,15 @@ fun LinuxSetupScreen(onOpenTerminal: () -> Unit) {
         return true
     }
 
+    fun guestHomeDir(): File = File(LinuxPaths.rootfsDir(filesDir()), "home/user")
+
     suspend fun guest(script: String, timeoutMs: Long): GuestProbe.ProbeResult? {
         val result = GuestProbe.run(
             LinuxPaths.prootBin(filesDir()),
             LinuxPaths.rootfsDir(filesDir()),
             LinuxPaths.bridgeDir(filesDir()),
             LinuxPaths.mirrorDir(filesDir()),
+            LinuxPaths.tmpDir(filesDir()),
             script,
             timeoutMs,
         )
@@ -197,6 +201,12 @@ fun LinuxSetupScreen(onOpenTerminal: () -> Unit) {
         progress?.let {
             LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(4.dp))
+        } ?: run {
+            // Indeterminate while verifying/extracting/initializing.
+            if (progressText != null) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(4.dp))
+            }
         }
         progressText?.let {
             Text(it, style = MaterialTheme.typography.bodySmall)
@@ -282,42 +292,55 @@ fun LinuxSetupScreen(onOpenTerminal: () -> Unit) {
         // ---- Doctor ----
         Text(stringResource(R.string.linux_doctor_title), style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
-        DoctorButton(stringResource(R.string.linux_doctor_shell), busy, ::appendLog, scope) {
+        DoctorButton(stringResource(R.string.linux_doctor_shell), busy, { busy = it }, ::appendLog, scope) {
             requireDebianReady() &&
                 guest("printf 'doctor-shell-ok '\n", 30_000)?.let {
                     appendLog("shell exit=${it.exitCode}\n${it.output.trim().take(500)}")
                     true
                 } == true
         }
-        DoctorButton(stringResource(R.string.linux_doctor_apt), busy, ::appendLog, scope) {
+        DoctorButton(stringResource(R.string.linux_doctor_apt), busy, { busy = it }, ::appendLog, scope) {
             requireDebianReady() &&
                 guest("apt-get update -o Acquire::AllowInsecureRepositories=false", 180_000)?.let {
                     appendLog("apt exit=${it.exitCode}\n${it.output.trim().takeLast(800)}")
                     true
                 } == true
         }
-        DoctorButton(stringResource(R.string.linux_doctor_python), busy, ::appendLog, scope) {
+        DoctorButton(stringResource(R.string.linux_doctor_python), busy, { busy = it }, ::appendLog, scope) {
             requireDebianReady() &&
                 guest("python3 --version", 30_000)?.let {
                     appendLog("python exit=${it.exitCode}\n${it.output.trim().take(200)}")
                     true
                 } == true
         }
-        DoctorButton(stringResource(R.string.linux_doctor_node), busy, ::appendLog, scope) {
+        DoctorButton(stringResource(R.string.linux_doctor_node), busy, { busy = it }, ::appendLog, scope) {
             requireDebianReady() &&
-                guest("node --version && npm --version", 30_000)?.let {
-                    appendLog("node exit=${it.exitCode}\n${it.output.trim().take(200)}")
+                guest(
+                    "export PATH=\"${'$'}HOME/.local/node/bin:${'$'}PATH\"; node --version && npm --version && which node",
+                    30_000,
+                )?.let {
+                    appendLog("node exit=${it.exitCode}\n${it.output.trim().take(300)}")
                     true
                 } == true
         }
-        DoctorButton(stringResource(R.string.linux_doctor_localhost), busy, ::appendLog, scope) {
+        DoctorButton(stringResource(R.string.linux_doctor_localhost), busy, { busy = it }, ::appendLog, scope) {
             requireDebianReady() &&
                 guest(
-                    "nohup python3 -m http.server 18080 >/tmp/http.log 2>&1 & " +
-                        "sleep 1; curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/",
+                    // stdin redirected + server lifetime bounded so the PTY
+                    // reaches EOF (a lingering background child would hold
+                    // the slave open forever and defeat the timeout).
+                    // Marker line: proot prints its own info lines on the
+                    // PTY, so the curl status is extracted by prefix.
+                    // (No pkill: the pattern would match our own shell's
+                    // cmdline; stale servers self-terminate via timeout.)
+                    "timeout 25 python3 -m http.server 18082 </dev/null >/tmp/http.log 2>&1 & " +
+                        "sleep 3; CODE=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18082/); " +
+                        "echo \"MTM_HTTP_CODE=${'$'}{CODE}\"; wait >/dev/null 2>&1; true",
                     60_000,
                 )?.let {
-                    appendLog("localhost http=${it.output.trim().take(10)} exit=${it.exitCode}")
+                    val code = Regex("MTM_HTTP_CODE=(\\d+)").find(it.output)
+                        ?.groupValues?.getOrNull(1) ?: "parse-failed"
+                    appendLog("localhost http=$code exit=${it.exitCode}")
                     true
                 } == true
         }
@@ -326,20 +349,40 @@ fun LinuxSetupScreen(onOpenTerminal: () -> Unit) {
         // ---- Presets ----
         Text(stringResource(R.string.linux_preset_title), style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
-        DoctorButton(stringResource(R.string.linux_preset_node), busy, ::appendLog, scope) {
-            requireDebianReady() &&
+        DoctorButton(stringResource(R.string.linux_preset_node), busy, { busy = it }, ::appendLog, scope) {
+            if (!requireDebianReady()) {
+                false
+            } else {
+                appendLog("downloading Node " + NodePreset.VERSION)
+                var lastPct = -1
+                val installed = NodePreset.install(filesDir(), guestHomeDir()) { done, total ->
+                    if (total > 0) {
+                        val pct = ((done * 100) / total).toInt()
+                        if (pct / 25 != lastPct / 25 || done == total) {
+                            lastPct = pct
+                            progressText = "$pct% (${humanBytes(context, done)} / ${humanBytes(context, total)})"
+                        }
+                    }
+                }.getOrElse {
+                    progressText = null
+                    message = context.getString(R.string.linux_install_failed, "${it.message}")
+                    return@DoctorButton false
+                }
+                progressText = null
+                appendLog("node installed: ${installed.nodeDir}")
                 guest(
-                    "apt-get update && apt-get install -y nodejs npm && node --version && npm --version",
-                    600_000,
+                    "export PATH=\"${'$'}HOME/.local/node/bin:${'$'}PATH\"; node --version && npm --version",
+                    60_000,
                 )?.let {
-                    appendLog("preset-node exit=${it.exitCode}\n${it.output.trim().takeLast(800)}")
+                    appendLog("preset-node exit=${it.exitCode}\n${it.output.trim().take(200)}")
                     true
                 } == true
+            }
         }
-        DoctorButton(stringResource(R.string.linux_preset_claude), busy, ::appendLog, scope) {
+        DoctorButton(stringResource(R.string.linux_preset_claude), busy, { busy = it }, ::appendLog, scope) {
             requireDebianReady() &&
                 guest(
-                    "npm install -g @anthropic-ai/claude-code && claude --version",
+                    "export PATH=\"${'$'}HOME/.local/node/bin:${'$'}PATH\"; npm install -g @anthropic-ai/claude-code && claude --version",
                     600_000,
                 )?.let {
                     appendLog("preset-claude exit=${it.exitCode}\n${it.output.trim().takeLast(800)}")
@@ -351,11 +394,23 @@ fun LinuxSetupScreen(onOpenTerminal: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
         )
         Spacer(Modifier.height(8.dp))
-        DoctorButton(stringResource(R.string.linux_preset_opencode), busy, ::appendLog, scope) {
+        DoctorButton(stringResource(R.string.linux_preset_opencode), busy, { busy = it }, ::appendLog, scope) {
             requireDebianReady() &&
                 guest(
-                    "export PATH=\"${'$'}HOME/.opencode/bin:${'$'}HOME/.local/bin:${'$'}PATH\"; " +
-                        "curl -fsSL https://opencode.ai/install.sh | bash && opencode --version",
+                    // Pinned official GitHub release (never pipe-to-shell);
+                    // checksum-verified before extraction.
+                    "OC_VER=v0.0.55; " +
+                        "OC_BASE=https://github.com/opencode-ai/opencode/releases/download/${'$'}{OC_VER}; " +
+                        "rm -rf /tmp/oc-dl && mkdir -p /tmp/oc-dl && cd /tmp/oc-dl && " +
+                        "curl -fsSL -O ${'$'}{OC_BASE}/opencode-linux-arm64.tar.gz && " +
+                        "curl -fsSL -o checksums.txt ${'$'}{OC_BASE}/checksums.txt && " +
+                        "grep opencode-linux-arm64.tar.gz checksums.txt | sha256sum -c - && " +
+                        "tar -xzf opencode-linux-arm64.tar.gz && " +
+                        "OC_BIN=$(find . -name opencode -type f | head -1) && " +
+                        "mkdir -p ${'$'}{HOME}/.local/bin && cp ${'$'}{OC_BIN} ${'$'}{HOME}/.local/bin/opencode && " +
+                        "chmod +x ${'$'}{HOME}/.local/bin/opencode && " +
+                        "export PATH=\"${'$'}{HOME}/.local/bin:${'$'}{HOME}/.local/node/bin:${'$'}{PATH}\" && " +
+                        "opencode --version",
                     300_000,
                 )?.let {
                     appendLog("preset-opencode exit=${it.exitCode}\n${it.output.trim().takeLast(800)}")
@@ -381,6 +436,7 @@ private fun humanBytes(context: android.content.Context, bytes: Long): String =
 private fun DoctorButton(
     label: String,
     busy: Boolean,
+    setBusy: (Boolean) -> Unit,
     appendLog: (String) -> Unit,
     scope: kotlinx.coroutines.CoroutineScope,
     action: suspend () -> Boolean,
@@ -388,9 +444,14 @@ private fun DoctorButton(
     TButton(
         onClick = {
             if (!busy) {
+                setBusy(true)
                 scope.launch {
-                    appendLog("--- " + label + " ---")
-                    action()
+                    try {
+                        appendLog("--- " + label + " ---")
+                        action()
+                    } finally {
+                        setBusy(false)
+                    }
                 }
             }
         },

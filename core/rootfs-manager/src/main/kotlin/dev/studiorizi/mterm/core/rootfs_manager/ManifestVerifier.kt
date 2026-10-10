@@ -83,8 +83,78 @@ object ManifestVerifier {
     }
 
     /**
-     * Canonical bytes covered by the manifest signature: JSON object with
-     * sorted keys and the "signature" field excluded.
+     * Verifies an RSA-2048 PKCS#1 v1.5 + SHA-256 signature over the canonical
+     * manifest bytes. Available on all API levels (fail closed otherwise).
+     *
+     * @param publicKeyDerX509 DER-encoded SubjectPublicKeyInfo (app-embedded).
+     */
+    fun verifyRsa(
+        manifestBytes: ByteArray,
+        signatureB64: String,
+        publicKeyDerX509: ByteArray,
+    ): Boolean {
+        return try {
+            if (publicKeyDerX509.isEmpty()) return false
+            val raw = signatureB64.removePrefix("rsa:")
+            val sigBytes = try {
+                java.util.Base64.getDecoder().decode(raw)
+            } catch (e: IllegalArgumentException) {
+                return false
+            }
+            if (sigBytes.size != 256) return false
+            val publicKey = KeyFactory.getInstance("RSA")
+                .generatePublic(X509EncodedKeySpec(publicKeyDerX509))
+            val verifier = Signature.getInstance("SHA256withRSA")
+            verifier.initVerify(publicKey)
+            verifier.update(manifestBytes)
+            verifier.verify(sigBytes)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** True when this runtime offers platform Ed25519 (API 33+). Cached. */
+    @Volatile
+    private var edSupportedCache: Boolean? = null
+
+    fun ed25519Supported(): Boolean {
+        edSupportedCache?.let { return it }
+        val supported = try {
+            KeyFactory.getInstance("Ed25519")
+            Signature.getInstance("Ed25519")
+            true
+        } catch (e: Exception) {
+            false
+        }
+        edSupportedCache = supported
+        return supported
+    }
+
+    /**
+     * Manifest trust policy across API levels:
+     * - Ed25519 capable: Ed25519 MUST verify (RSA is not consulted, so a
+     *   broken Ed25519 can never be masked by RSA).
+     * - Ed25519 unavailable (API < 33): RSA MUST verify.
+     * Fail closed in every other case.
+     */
+    fun verifyManifest(
+        manifestBytes: ByteArray,
+        edSignatureB64: String,
+        edPublicKeyRaw32: ByteArray,
+        rsaSignatureB64: String,
+        rsaPublicKeyDer: ByteArray,
+        edSupported: Boolean = ed25519Supported(),
+    ): Boolean {
+        return if (edSupported) {
+            verifyEd25519(manifestBytes, edSignatureB64, edPublicKeyRaw32)
+        } else {
+            rsaSignatureB64.isNotEmpty() &&
+                verifyRsa(manifestBytes, rsaSignatureB64, rsaPublicKeyDer)
+        }
+    }
+    /**
+     * Canonical bytes covered by BOTH manifest signatures: JSON object with
+     * sorted keys and the "signature"/"signatureRsa" fields excluded.
      */
     fun canonicalBytes(manifest: RootfsManifest): ByteArray {
         val obj: JsonObject = buildJsonObject {

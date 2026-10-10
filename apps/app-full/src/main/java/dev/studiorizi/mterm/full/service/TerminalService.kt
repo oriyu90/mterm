@@ -13,6 +13,7 @@ import androidx.core.content.ContextCompat
 import dev.studiorizi.mterm.core.linux_chroot.ChrootBackend
 import dev.studiorizi.mterm.core.linux_proot.ProotBackend
 import dev.studiorizi.mterm.core.process_supervisor.ProcessSupervisor
+import dev.studiorizi.mterm.core.rootfs_manager.RootfsManager
 import dev.studiorizi.mterm.core.session_core.SessionManager
 import dev.studiorizi.mterm.full.backend.AndroidShellBackend
 import dev.studiorizi.mterm.full.backend.LinuxPaths
@@ -124,6 +125,10 @@ class TerminalService : Service() {
                     bridgeDir = bridgeDir,
                     mirrorDir = mirrorDir,
                     prootBin = prootBin,
+                    tmpDir = LinuxPaths.tmpDir(filesDir),
+                    // Re-resolve per session: the installer may publish a new
+                    // version while this service lives.
+                    rootfsDirProvider = { RootfsManager.activeRootfsDir(filesDir) },
                 ),
                 SessionMode.DEBIAN_CHROOT to ChrootBackend(rootfsDir = debianDir),
             ),

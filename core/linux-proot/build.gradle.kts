@@ -21,6 +21,7 @@ android {
 dependencies {
     implementation(project(":core:session-core"))
     implementation(project(":core:pty-runtime"))
+    implementation(project(":core:rootfs-manager"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.core)

@@ -19,4 +19,6 @@ object LinuxPaths {
     fun bridgeDir(filesDir: File): File = File(filesDir, "shared/bridge")
 
     fun mirrorDir(filesDir: File): File = File(filesDir, "shared/mirror")
+
+    fun tmpDir(filesDir: File): File = File(filesDir, "tmp")
 }

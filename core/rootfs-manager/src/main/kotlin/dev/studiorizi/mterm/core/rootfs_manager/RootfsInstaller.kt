@@ -94,9 +94,9 @@ class RootfsInstaller(
             }
             onState(InstallState.EXTRACTING, 0, manifest.size)
             staging.deleteRecursively()
-            TarGzExtractor.extract(archive, staging) { entries ->
+            TarExtractor.extract(archive, staging, onProgress = { entries ->
                 onState(InstallState.EXTRACTING, entries.toLong(), -1)
-            }.getOrElse {
+            }).getOrElse {
                 staging.deleteRecursively()
                 return@withContext Result.failure(it)
             }
@@ -146,14 +146,18 @@ class RootfsInstaller(
                         RootfsManifest.serializer(),
                         text,
                     )
-                    val ok = ManifestVerifier.verifyEd25519(
+                    val edKey = publicKey.takeIf { it.size == 32 }
+                    val rsaKey = RootfsKeys.rsaPublicDer()
+                    val ok = edKey != null && rsaKey != null && ManifestVerifier.verifyManifest(
                         ManifestVerifier.canonicalBytes(manifest),
                         manifest.signature,
-                        publicKey,
+                        edKey,
+                        manifest.signatureRsa,
+                        rsaKey,
                     )
                     if (!ok) {
                         return@withContext Result.failure(
-                            IllegalStateException("manifest Ed25519 signature invalid"),
+                            IllegalStateException("manifest signature invalid"),
                         )
                     }
                     Result.success(manifest)
@@ -165,13 +169,18 @@ class RootfsInstaller(
             }
         }
 
-    /** Guest first-boot shape: DNS + user home (idempotent). */
+    /** Guest first-boot shape: DNS + user home + bind mountpoints (idempotent). */
     private fun initialize(rootfs: File) {
         File(rootfs, "etc/resolv.conf").apply {
             parentFile?.mkdirs()
             writeText("nameserver 1.1.1.1\nnameserver 8.8.8.8\n")
         }
         File(rootfs, "home/user").mkdirs()
+        // proot binds host /dev//proc//sys over these; ensure the
+        // mountpoints exist even when the tarball lacks them.
+        File(rootfs, "dev").mkdirs()
+        File(rootfs, "proc").mkdirs()
+        File(rootfs, "sys").mkdirs()
     }
 
     /** Copies previous guest home into the fresh tree (additive, no deletes). */

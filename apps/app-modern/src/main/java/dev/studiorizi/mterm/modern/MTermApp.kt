@@ -23,6 +23,7 @@ class MTermApp : Application() {
                 bridgeDir = File(filesDir, "bridge"),
                 mirrorDir = File(filesDir, "shared/mirror"),
                 prootBin = File(filesDir, "bin/proot"),
+                tmpDir = File(filesDir, "tmp"),
             ),
             SessionMode.DEBIAN_CHROOT to ChrootBackend(
                 rootfsDir = File(filesDir, "linux/rootfs"),

@@ -16,6 +16,8 @@ class ProotInstallerTest {
         try {
             val assets = mapOf(
                 ProotInstaller.PROOT_NAME to "#!/bin/sh\necho proot-test\n".toByteArray(),
+                ProotInstaller.LOADER_NAME to ByteArray(32) { 9 },
+                ProotInstaller.LOADER32_NAME to ByteArray(16) { 8 },
                 ProotInstaller.LIB_TALLOC to ByteArray(16) { it.toByte() },
                 ProotInstaller.LIB_SHMEM to ByteArray(8) { (it + 1).toByte() },
             )

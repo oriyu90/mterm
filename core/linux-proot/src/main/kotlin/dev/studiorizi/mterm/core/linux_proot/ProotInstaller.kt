@@ -17,11 +17,19 @@ import kotlinx.coroutines.withContext
 object ProotInstaller {
 
     const val PROOT_NAME = "proot"
+    const val LOADER_NAME = "loader"
+    const val LOADER32_NAME = "loader32"
     const val LIB_TALLOC = "libtalloc.so.2"
     const val LIB_SHMEM = "libandroid-shmem.so"
 
     /** Asset file names under `assets/bin/` (renamed at build time). */
-    val ASSET_NAMES: List<String> = listOf(PROOT_NAME, LIB_TALLOC, LIB_SHMEM)
+    val ASSET_NAMES: List<String> = listOf(
+        PROOT_NAME,
+        LOADER_NAME,
+        LOADER32_NAME,
+        LIB_TALLOC,
+        LIB_SHMEM,
+    )
 
     /**
      * Writes [assets] (name -> bytes) into [binDir], marks them executable,

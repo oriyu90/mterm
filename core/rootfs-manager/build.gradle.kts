@@ -23,6 +23,10 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
+    // Vendored pure-Java XZ decoder (public domain, no native code) for
+    // .tar.xz developer presets (Node.js tarballs). Pinned binary under
+    // libs/ so release builds never depend on Maven at build time.
+    implementation(files("libs/xz-1.12.jar"))
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
