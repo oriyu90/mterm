@@ -116,6 +116,10 @@ dependencies {
     implementation(libs.androidx.security.crypto)
     // SSH transport (sshj). SLF4J has no binding: sshj logs are dropped.
     implementation(libs.sshj)
+    // Full crypto provider for sshj on Android (X25519/EdDSA/DH/EC):
+    // the platform BC and conscrypt copies lack algorithms sshj needs
+    // (device-proven X25519/SHA-256/DH/EC failures). ~3.5MB, R8-kept.
+    implementation(libs.spongycastle.prov)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)

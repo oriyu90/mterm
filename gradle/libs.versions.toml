@@ -25,6 +25,7 @@ libsu = "5.2.2"
 material3WindowSize = "1.3.1"
 sshj = "0.39.0"
 sshd = "2.12.0"
+spongycastle = "1.58.0.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -62,6 +63,7 @@ androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-co
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 sshj = { group = "com.hierynomus", name = "sshj", version.ref = "sshj" }
+spongycastle-prov = { group = "com.madgag.spongycastle", name = "prov", version.ref = "spongycastle" }
 sshd-core = { group = "org.apache.sshd", name = "sshd-core", version.ref = "sshd" }
 
 [plugins]

@@ -60,9 +60,19 @@
    - 検証: MINA 内蔵サーバとの実プロトコル 3 tests（echo/auth 成否/trust 永続）
      ＋ TB710FU で validation・到達不能 host の clean failure（`SSH failed:
      connect…` 表示、クラッシュなし）
-   - 実機フル接続 E2E は VPN 制約で保留（到達可能な SSH サーバなし。VPN 停止後
-     に Mac sshd 宛てで実施予定）。信頼ダイアログの実機操作も同条件で保留
-     （JVM では承認フロー検証済み）
+   - ✅ 実機フル接続 E2E PASS（2026-10-11, VPN停止後）: ゲスト内 node ssh2
+     サーバ（127.0.0.1:2222, loopback 到達）宛てにダイアログ→信頼ダイアログ
+     表示→Trust always（known_hosts に `[127.0.0.1]:2222 ssh-rsa…` 永続確認）
+     →password auth→対話シェルで `echo` 往復表示まで確認
+   - 実機で潰した暗号バグ: Android BC に X25519/SHA-256/DH/EC なし →
+     SpongyCastle 同梱＋SC 登録（`SC` 明示登録、sshj helper は版本脆弱のため
+     直接 addProvider）＋curve25519 除外・ECDH 優先の KEX 順序。
+     SC 1.58 は X25519/Ed25519 を持たないため ed25519 ホスト鍵は制限事項
+     （clean failure として表面化、クラッシュなし）
+   - テスト fixture 知見（server.js は devices ではなく repo 外 /tmp に保管）:
+     ssh2 サーバ側は pty 要求の明示 accept・`stream.write` への書戻し・
+     stdbuf 無緩衝化・ICRNL（CR→LF）変換が必要。素の pipe 結合では黒画面
+     になる（アプリ側の不具合ではない）
    - R8 対応: GSSAPI/JAAS＋eddsa 内部 API の dontwarn（GSS は未使用、ed25519
      host 鍵は Android 上で失敗する可能性あり＝制限事項として明記）。
      release ビルド（minify）通過確認済み
@@ -104,6 +114,20 @@
   → ✅ 実機 PASS（2 セッション→Close selected→1 残、詳細追従）
 - E6: 既存 171 tests＋新規 tests 全 PASS、debug 実機で E1–E5 確認後に commit
   → ✅ 184 tests PASS（debug 実機 E1–E3/E5 確認済み、E4 は部分的）
+
+## 7. VPN停止後の検証結果（2026-10-11）
+
+- SSH フル E2E: ✅ PASS（上記 R2-D 項）。端末間 LAN ではなく同一デバイス
+  loopback（ゲスト内 ssh2 サーバ）宛てだが、TCP・SSH プロトコル・認証・
+  シェル I/O の全層が実機で通った
+- Q3 LAN 到達: 機構は ✅（ゲスト python http.server を 0.0.0.0:18080 で
+  起動→デバイス LAN IP 192.168.0.177 宛てに Android 側から HTTP 200 を確認。
+  ゲストサービスは LAN に露出している）。Mac→デバイスの対向証明は ❌保留:
+  Mac（10.127.37.43/en0）とデバイス（192.168.0.177/wlan1, SSID
+  TP-Link_FCAC_MLO）が別サブネットで相互 ping 不通。同一 LAN への join が
+  必要（ユーザ側ネットワーク設定）
+- 副産物: ゲスト外向き TCP は不通（Android 層は疎通OK、loopback はOK）。
+  proot 経由の外向き接続に何らかの制約あり。要調査（別件）
 
 ## 6. リスクと対策
 

@@ -25,6 +25,9 @@
 -keep class net.schmizz.sshj.** { *; }
 -keep class net.i2p.crypto.** { *; }
 -keep class com.hierynomus.asn.** { *; }
+# SpongyCastle registers algorithms by string name (Class.forName at
+# runtime); R8 cannot see those edges — keep the whole provider.
+-keep class org.spongycastle.** { *; }
 
 # sshj's GSSAPI/Kerberos auth references JAAS (javax.security, org.ietf.jgss),
 # absent on Android. We never negotiate gssapi-with-mic (password/publickey

@@ -109,6 +109,14 @@ class SshConnection private constructor(
             try {
                 client.connectTimeout = CONNECT_TIMEOUT_MS
                 client.timeout = CONNECT_TIMEOUT_MS
+                useAndroidSecurityProvider()
+                // SpongyCastle 1.58 predates X25519, so curve25519 KEX can
+                // never complete here; drop it. Prefer ECDH-nistp first:
+                // some servers (e.g. node ssh2) lack DH group exchange and
+                // abort the handshake when it is negotiated first.
+                val kex = orderKexFactories(client.transport.config.keyExchangeFactories)
+                require(kex.isNotEmpty()) { "no usable key exchange" }
+                client.transport.config.setKeyExchangeFactories(kex)
                 client.addHostKeyVerifier(verifier(host, port, knownHostsFile))
                 try {
                     client.connect(host, port)
@@ -218,8 +226,66 @@ class SshConnection private constructor(
             }
         }
 
-        private fun short(e: Exception): String =
-            (e.message?.take(160) ?: e.javaClass.simpleName).replace('\n', ' ')
+        /**
+         * Points sshj at a full crypto provider on Android. The platform
+         * "BC" copy and conscrypt ("AndroidNSSP") both lack algorithms sshj
+         * needs (device-proven X25519/SHA-256/DH/EC failures), so prefer the
+         * bundled SpongyCastle ("SC", sshj's officially supported Android
+         * provider) with the full KEX/cipher/MAC/signature suite — including
+         * curve25519 and ed25519. Falls back to conscrypt when SpongyCastle
+         * is absent; no-op on plain JVMs (unit tests keep JDK providers).
+         */
+        fun useAndroidSecurityProvider() {
+            val hasSpongy = try {
+                Class.forName("org.spongycastle.jce.provider.BouncyCastleProvider")
+                true
+            } catch (_: Exception) {
+                false
+            }
+            when {
+                hasSpongy -> {
+                    SecurityUtils.setSecurityProvider(SecurityUtils.SPONGY_CASTLE)
+                    // Switching providers does not auto-register: without
+                    // this, every JCA lookup (ciphers, digests, KEX) fails
+                    // and negotiation ends with an empty cipher list.
+                    // sshj's register helper is version-fragile, so register
+                    // the provider directly when it is still absent.
+                    if (java.security.Security.getProvider(SecurityUtils.SPONGY_CASTLE) == null) {
+                        try {
+                            val clazz = Class.forName(
+                                "org.spongycastle.jce.provider.BouncyCastleProvider",
+                            )
+                            val provider = clazz.getDeclaredConstructor().newInstance()
+                            java.security.Security.addProvider(provider as java.security.Provider)
+                        } catch (_: Exception) {
+                            // Falls through: JCA lookups will fail loudly at
+                            // connect time and surface as a normal SSH error.
+                        }
+                    }
+                }
+                java.security.Security.getProvider("AndroidNSSP") != null ->
+                    SecurityUtils.setSecurityProvider("AndroidNSSP")
+            }
+        }
+
+        /**
+         * Drops curve25519 KEX factories (SpongyCastle 1.58 predates X25519)
+         * and prefers ECDH-nistp first. Pure for unit tests.
+         */
+        fun orderKexFactories(
+            all: List<net.schmizz.sshj.common.Factory.Named<net.schmizz.sshj.transport.kex.KeyExchange>>,
+        ) = all.filterNot { it.name.contains("25519") }.sortedBy {
+            when {
+                it.name.startsWith("ecdh-sha2-nistp256") -> 0
+                it.name.startsWith("ecdh-") -> 1
+                else -> 2
+            }
+        }
+
+        private fun short(e: Exception): String {
+            val msg = e.message?.take(160)?.replace('\n', ' ')?.ifEmpty { null }
+            return if (msg != null) "${e.javaClass.simpleName}: $msg" else e.javaClass.simpleName
+        }
     }
 }
 

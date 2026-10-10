@@ -250,6 +250,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             passToken = null
             auth = SshParams.AUTH_PASSWORD
         }
+        _lastError.value = null
         val result = hostRef.open(
             mode = SessionMode.SSH,
             title = context.getString(R.string.ssh) + " " + trimmedUser + "@" + trimmedHost,

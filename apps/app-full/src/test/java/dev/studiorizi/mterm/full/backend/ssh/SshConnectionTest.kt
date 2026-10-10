@@ -14,6 +14,7 @@ import org.apache.sshd.server.command.Command
 import org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider
 import org.apache.sshd.server.shell.ShellFactory
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -91,6 +92,41 @@ class SshConnectionTest {
         assertTrue(
             "unexpected trust prompt on known host",
             SshTrust.pending.value.size == pendingBefore,
+        )
+    }
+
+    @Test
+    fun `kex ordering drops curve25519 and prefers ecdh256`() {
+        val client = net.schmizz.sshj.SSHClient()
+        try {
+            val all = client.transport.config.keyExchangeFactories
+            assertTrue("expected curve25519 in defaults", all.any { "25519" in it.name })
+            val ordered = SshConnection.orderKexFactories(all)
+            assertTrue("no 25519 remains", ordered.none { "25519" in it.name })
+            assertTrue("non-empty", ordered.isNotEmpty())
+            assertTrue(
+                "ecdh-256 first",
+                ordered.first().name.startsWith("ecdh-sha2-nistp256"),
+            )
+        } finally {
+            try {
+                client.close()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    @Test
+    fun `android provider selection prefers spongycastle when bundled`() {
+        SshConnection.useAndroidSecurityProvider()
+        // Test classpath bundles SpongyCastle (same as the APK), so SC wins.
+        assertEquals(
+            "SC",
+            net.schmizz.sshj.common.SecurityUtils.getSecurityProvider(),
+        )
+        assertTrue(
+            "SC provider registered",
+            java.security.Security.getProvider("SC") != null,
         )
     }
 
