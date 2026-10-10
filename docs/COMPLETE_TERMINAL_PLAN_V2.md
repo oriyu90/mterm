@@ -29,12 +29,25 @@
 
 ## 3. v2.1 以降（今回やらない・理由つき）
 
-- SSH 実装: sshj 依存＋鍵管理の大工事。`SshBackend`  stub 維持
-- split/search/選択・URL: UI 大工事。検索 API のみ core に先行追加するかは v2.0 残時間で判断
+- SSH 実装: sshj 依存＋鍵管理の大工事。`SshBackend` stub 維持
+- split/選択・URL タップ: UI 大工事。検索 core API は先行実装済み（下記 Round 2）
 - tmux プリセット: apt不可（hardlink P10）のため静的ビルド調達が前提。見送り
-- chroot: root 取得デバイスなしでは検証不能。ボタンは gate 維持（文言を「要 root」に明確化）
+- chroot: root 取得デバイスなしでは検証不能。ボタン文言を「要 root」に明確化 ✅（Round 2 で対応）
 - modern/remote 実行配線・Gate C: 実験版のまま。Full に集中
 - BackupAgent・コンパイラ同梱: 別計画
+
+## 3b. Round 2 作業順（2026-10-11 開始）
+
+1. ✅ R2-A: chroot ボタン文言「要 root」明確化（EN/JA）＋ E4 はコード完成扱い
+   （設定ボタン＋診断行＋フォールバック実装済み。Lenovo TB710FU に
+   `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` 解決 Activity が存在せず、
+   タップ E2E は当該デバイスでは検証不能のため）
+2. ✅ R2-B1: 端末検索 core API（`TerminalSearch`: scrollback＋画面の統一
+   index 検索、大文字小文字無視切替、URL 抽出＋末尾句読点 trim）＋ 8 tests
+3. R2-B2: 検索バー UI（次/前、ハイライト）＋長押し選択コピー＋URL タップ open
+4. R2-C: split 表示（2 ペイン）
+5. R2-D: SSH（sshj 依存の是非・鍵管理設計から。要相談）
+6. R2-E: modern/remote 配線評価、BackupAgent（別途）
 
 ## 4. 依存関係図（今回分）
 

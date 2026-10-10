@@ -6,7 +6,7 @@
     <string name="new_session">New session</string>
     <string name="new_android_shell">New Android shell</string>
     <string name="new_debian_proot">New Debian (PRoot)</string>
-    <string name="new_root_chroot">New root chroot</string>
+    <string name="new_root_chroot">New root chroot (requires root)</string>
     <string name="settings">Settings</string>
     <string name="storage">Storage</string>
     <string name="diagnostics">Diagnostics</string>

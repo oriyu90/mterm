@@ -6,7 +6,7 @@
     <string name="new_session">新規セッション</string>
     <string name="new_android_shell">Androidシェルを新規作成</string>
     <string name="new_debian_proot">Debian (PRoot) を新規作成</string>
-    <string name="new_root_chroot">root chrootを新規作成</string>
+    <string name="new_root_chroot">root chrootを新規作成（要root）</string>
     <string name="settings">設定</string>
     <string name="storage">ストレージ</string>
     <string name="diagnostics">診断</string>
