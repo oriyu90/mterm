@@ -36,15 +36,21 @@ object ProotArgv {
         bridgeDir: File,
         mirrorDir: File,
         guestCommand: List<String>,
+        extraGuestEnv: List<String> = emptyList(),
     ): List<String> {
         val tail = if (guestCommand.isEmpty() || guestCommand == DEFAULT_SHELL) {
             DEFAULT_SHELL
         } else {
             guestCommand
         }
+        // The whole shared tree is visible in-guest: flat mirror/,
+        // inbox/, and per-mount <mountId>/mirror/ subtrees. Binding the
+        // tree (not just mirror/) keeps SAF mounts and the inbox reachable
+        // without per-mount bind bookkeeping.
+        val sharedRoot = mirrorDir.parentFile ?: mirrorDir
         val binds = listOf(
             "--bind=${bridgeDir.absolutePath}:$BRIDGE_GUEST_PATH",
-            "--bind=${mirrorDir.absolutePath}:$MIRROR_GUEST_PATH",
+            "--bind=${sharedRoot.absolutePath}:$MIRROR_GUEST_PATH",
         ) + SYSTEM_BINDS.map { "--bind=$it" }
         return listOf(
             prootBin.absolutePath,
@@ -65,7 +71,7 @@ object ProotArgv {
             // which hangs under proot ptrace; force the epoll fallback
             // for every guest process (verified on device).
             "UV_USE_IO_URING=0",
-        ) + tail
+        ) + extraGuestEnv + tail
     }
 
     /** Host env for spawning proot: loader path for the bundled libs, a

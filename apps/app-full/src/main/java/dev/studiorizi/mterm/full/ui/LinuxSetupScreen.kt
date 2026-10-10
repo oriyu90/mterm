@@ -26,6 +26,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.studiorizi.mterm.core.data.MTermPrefs
 import dev.studiorizi.mterm.core.linux_proot.GuestProbe
+import dev.studiorizi.mterm.full.backend.BridgeCliInstaller
+import dev.studiorizi.mterm.full.backend.BridgeServer
 import dev.studiorizi.mterm.core.linux_proot.NodePreset
 import dev.studiorizi.mterm.core.linux_proot.ProotInstaller
 import dev.studiorizi.mterm.core.rootfs_manager.InstallState
@@ -125,6 +127,28 @@ fun LinuxSetupScreen(onOpenTerminal: () -> Unit) {
 
     fun guestHomeDir(): File = File(LinuxPaths.rootfsDir(filesDir()), "home/user")
 
+    suspend fun ensureBridgeCli() {
+        try {
+            val names = BridgeCliInstaller.SCRIPT_NAMES
+            val scripts = names.associateWith { name ->
+                appContext.assets.open("bridge-cli/$name").use {
+                    it.readBytes().toString(Charsets.UTF_8)
+                }
+            }
+            BridgeCliInstaller.ensure(LinuxPaths.rootfsDir(filesDir()), scripts)
+        } catch (_: Exception) {
+            // Best effort: doctor checks still work without the CLI.
+        }
+    }
+
+    // Repair path: installs started before bridge-cli existed (or wiped
+    // /usr/local/bin) get the scripts on every setup-screen visit while READY.
+    LaunchedEffect(debianState, debianVersion) {
+        if (debianState == InstallState.READY.name && debianVersion.isNotEmpty()) {
+            ensureBridgeCli()
+        }
+    }
+
     suspend fun guest(script: String, timeoutMs: Long): GuestProbe.ProbeResult? {
         val result = GuestProbe.run(
             LinuxPaths.prootBin(filesDir()),
@@ -134,6 +158,9 @@ fun LinuxSetupScreen(onOpenTerminal: () -> Unit) {
             LinuxPaths.tmpDir(filesDir()),
             script,
             timeoutMs,
+            extraGuestEnv = listOf(
+                "MTERM_BRIDGE_SOCK=${BridgeServer.guestEnvSock()}",
+            ),
         )
         return result.fold(
             onSuccess = { it },
@@ -262,6 +289,9 @@ fun LinuxSetupScreen(onOpenTerminal: () -> Unit) {
                         onSuccess = {
                             message = context.getString(R.string.linux_ready, it.version)
                             refreshDebian()
+                            scope.launch {
+                                ensureBridgeCli()
+                            }
                         },
                         onFailure = {
                             message = context.getString(R.string.linux_install_failed, "${it.message}")

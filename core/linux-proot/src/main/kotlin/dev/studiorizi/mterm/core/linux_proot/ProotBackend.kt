@@ -35,6 +35,7 @@ class ProotBackend(
      * would go stale; defaults to the constructor path for tests.
      */
     private val rootfsDirProvider: () -> File = { rootfsDir },
+    private val extraGuestEnv: List<String> = emptyList(),
 ) : ExecutionBackend {
 
     override val mode: SessionMode = SessionMode.DEBIAN_PROOT
@@ -55,7 +56,7 @@ class ProotBackend(
         // carries only the loader path. See ProotArgv (single source of
         // truth shared with one-shot GuestProbe commands).
         val liveRootfs = runCatching { rootfsDirProvider() }.getOrDefault(rootfsDir)
-        val argv = ProotArgv.build(prootBin, liveRootfs, bridgeDir, mirrorDir, tail)
+        val argv = ProotArgv.build(prootBin, liveRootfs, bridgeDir, mirrorDir, tail, extraGuestEnv)
         return PreparedSession(
             spec = spec,
             argv = argv,

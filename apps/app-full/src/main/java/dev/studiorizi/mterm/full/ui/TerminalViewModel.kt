@@ -53,10 +53,12 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val rootChrootSupported: StateFlow<Boolean?> = _rootChrootSupported.asStateFlow()
 
     private var bound = false
+    private var bridgeServer: dev.studiorizi.mterm.full.backend.BridgeServer? = null
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             val host = (binder as? TerminalService.LocalBinder)?.getHost() ?: return
+            bridgeServer = (binder as? TerminalService.LocalBinder)?.getBridgeServer()
             _host.value = host
             _sessions.value = host.sessions.value
             _tick.value = host.renderTick.value
@@ -98,6 +100,12 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     init {
         _rootChrootSupported.value = null
+    }
+
+    suspend fun bridgePing(): String? = bridgeServer?.ping()
+
+    fun postError(text: String) {
+        _lastError.value = text
     }
 
     fun bind(context: Context) {

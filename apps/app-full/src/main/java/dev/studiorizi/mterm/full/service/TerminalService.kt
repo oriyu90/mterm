@@ -16,6 +16,7 @@ import dev.studiorizi.mterm.core.process_supervisor.ProcessSupervisor
 import dev.studiorizi.mterm.core.rootfs_manager.RootfsManager
 import dev.studiorizi.mterm.core.session_core.SessionManager
 import dev.studiorizi.mterm.full.backend.AndroidShellBackend
+import dev.studiorizi.mterm.full.backend.BridgeServer
 import dev.studiorizi.mterm.full.backend.LinuxPaths
 import dev.studiorizi.mterm.core.session_core.SessionMode
 import dev.studiorizi.mterm.core.terminal_session.TerminalSessionHost
@@ -57,15 +58,26 @@ class TerminalService : Service() {
 
     private val binder = LocalBinder()
 
+    private var bridgeServer: BridgeServer? = null
+
     inner class LocalBinder : Binder() {
         fun getHost(): TerminalSessionHost = host
         fun getService(): TerminalService = this@TerminalService
+        fun getBridgeServer(): BridgeServer? = bridgeServer
     }
 
     override fun onCreate() {
         super.onCreate()
         host = buildHost()
         ensureChannel()
+        bridgeServer = BridgeServer(
+            applicationContext,
+            LinuxPaths.rootfsDir(filesDir),
+            LinuxPaths.bridgeDir(filesDir),
+            LinuxPaths.mirrorDir(filesDir),
+            appVersion(),
+            debianReady = { RootfsManager.activeRootfsDir(filesDir).isDirectory },
+        ).also { it.start() }
         // Stop the service once the last session exits.
         scope.launch {
             host.sessions.collectLatest { sessions ->
@@ -104,9 +116,20 @@ class TerminalService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onDestroy() {
+        bridgeServer?.stop()
+        bridgeServer = null
         host.shutdown()
         scope.cancel()
         super.onDestroy()
+    }
+
+    private fun appVersion(): String {
+        return try {
+            val info = packageManager.getPackageInfo(packageName, 0)
+            info.versionName ?: "unknown"
+        } catch (_: Exception) {
+            "unknown"
+        }
     }
 
     private fun buildHost(): TerminalSessionHost {
@@ -129,6 +152,10 @@ class TerminalService : Service() {
                     // Re-resolve per session: the installer may publish a new
                     // version while this service lives.
                     rootfsDirProvider = { RootfsManager.activeRootfsDir(filesDir) },
+                    // Guest bridge endpoint (abstract UDS served below).
+                    extraGuestEnv = listOf(
+                        "MTERM_BRIDGE_SOCK=${BridgeServer.guestEnvSock()}",
+                    ),
                 ),
                 SessionMode.DEBIAN_CHROOT to ChrootBackend(rootfsDir = debianDir),
             ),

@@ -1,5 +1,6 @@
 package dev.studiorizi.mterm.full
 
+import android.content.Intent
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
@@ -35,6 +36,7 @@ import androidx.compose.material3.windowsizeclass.WindowSizeClass
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -72,6 +74,7 @@ import dev.studiorizi.mterm.full.ui.TerminalViewModel
 import dev.studiorizi.mterm.full.ui.appColorScheme
 import dev.studiorizi.mterm.full.ui.appShapes
 import dev.studiorizi.mterm.full.ui.terminalPaletteFor
+import dev.studiorizi.mterm.full.backend.InboxBridge
 
 /**
  * Full Sideload MVP entry point.
@@ -128,6 +131,16 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == Intent.ACTION_VIEW) {
+            intent.data?.let { uri ->
+                InboxBridge.pending.trySend(uri)
+            }
+        }
+    }
 }
 
 @Composable
@@ -163,6 +176,27 @@ private fun MTermRoot(
         onDispose { vm.unbind(context) }
     }
     val nav = rememberNavController()
+    val activity = context as? ComponentActivity
+    // Files shared from other apps (ACTION_VIEW) land in the isolated inbox,
+    // then a Debian session opens so the guest can use them at /mnt/shared.
+    LaunchedEffect(Unit) {
+        activity?.intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data?.let { uri ->
+            InboxBridge.pending.trySend(uri)
+            activity.intent = Intent()
+        }
+        for (uri in InboxBridge.pending) {
+            val imported = InboxBridge.importViewed(context.applicationContext, uri)
+            imported.fold(
+                onSuccess = {
+                    vm.newDebianProot(context)
+                    nav.navigate("home")
+                },
+                onFailure = {
+                    vm.postError(it.message ?: it.toString())
+                },
+            )
+        }
+    }
     val orientation = LocalConfiguration.current.orientation
     val sideBySide = windowSize.widthSizeClass == WindowWidthSizeClass.Expanded ||
         orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -193,19 +227,45 @@ private fun MTermRoot(
             modifier = Modifier.padding(padding),
         ) {
             composable("home") {
+                // Single source of truth for the selected tab: both panes
+                // follow it (previously each kept its own and could diverge).
+                val sessions by vm.sessions.collectAsState()
+                var selectedTab by remember { mutableStateOf<String?>(null) }
+                val ids = sessions.keys
+                val selectedId =
+                    if (selectedTab != null && selectedTab in ids) selectedTab
+                    else ids.firstOrNull()
                 if (sideBySide) {
                     Row(modifier = Modifier.fillMaxSize()) {
                         Box(modifier = Modifier.weight(1f)) {
-                            SessionListPane(vm, gutter) { nav.navigate("linux") }
+                            SessionListPane(
+                                vm, gutter, selectedId,
+                                onSelect = { selectedTab = it },
+                                onClose = { id ->
+                                    if (selectedTab == id) selectedTab = null
+                                    vm.stopSession(id)
+                                },
+                                onLinuxSetup = { nav.navigate("linux") },
+                                onStorage = { nav.navigate("storage") },
+                            )
                         }
                         Box(modifier = Modifier.weight(1f)) {
-                            SessionDetailPane(vm, termHeight, palette, gutter)
+                            SessionDetailPane(vm, termHeight, palette, gutter, selectedId)
                         }
                     }
                 } else {
                     Column(modifier = Modifier.fillMaxSize()) {
-                        SessionListPane(vm, gutter) { nav.navigate("linux") }
-                        SessionDetailPane(vm, termHeight, palette, gutter)
+                        SessionListPane(
+                            vm, gutter, selectedId,
+                            onSelect = { selectedTab = it },
+                            onClose = { id ->
+                                if (selectedTab == id) selectedTab = null
+                                vm.stopSession(id)
+                            },
+                            onLinuxSetup = { nav.navigate("linux") },
+                            onStorage = { nav.navigate("storage") },
+                        )
+                        SessionDetailPane(vm, termHeight, palette, gutter, selectedId)
                     }
                 }
             }
@@ -239,19 +299,14 @@ private fun FabHome(onClick: () -> Unit) {
 private fun SessionListPane(
     vm: TerminalViewModel,
     gutter: Dp,
+    selected: String?,
+    onSelect: (String) -> Unit,
+    onClose: (String) -> Unit,
     onLinuxSetup: () -> Unit,
+    onStorage: () -> Unit,
 ) {
     val context = LocalContext.current
     val sessions by vm.sessions.collectAsState()
-    var selected by remember { mutableStateOf<String?>(null) }
-    // Keep selection valid as sessions come and go.
-    val ids = sessions.keys
-    if (selected != null && selected !in ids) {
-        selected = ids.firstOrNull()
-    }
-    if (selected == null && ids.isNotEmpty()) {
-        selected = ids.firstOrNull()
-    }
 
     Column(
         modifier = Modifier
@@ -268,7 +323,7 @@ private fun SessionListPane(
                     val state by runtime.state.collectAsState()
                     TFilterChip(
                         selected = selected == runtime.spec.id,
-                        onClick = { selected = runtime.spec.id },
+                        onClick = { onSelect(runtime.spec.id) },
                         label = { Text("${runtime.spec.title} · ${state.name}") },
                     )
                 }
@@ -282,6 +337,14 @@ private fun SessionListPane(
             style = MaterialTheme.typography.bodySmall,
         )
         Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TButton(
+                onClick = { selected?.let { onClose(it) } },
+            ) {
+                Text(stringResource(R.string.close_selected))
+            }
+        }
+        Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TButton(onClick = { vm.newAndroidShell(context) }) {
                 Text(stringResource(R.string.new_android_shell))
@@ -307,6 +370,9 @@ private fun SessionListPane(
             TButton(onClick = onLinuxSetup) {
                 Text(stringResource(R.string.linux_setup))
             }
+            TButton(onClick = onStorage) {
+                Text(stringResource(R.string.storage))
+            }
         }
         vm.lastError.collectAsState().value?.let { error ->
             Spacer(Modifier.height(8.dp))
@@ -325,6 +391,7 @@ private fun SessionDetailPane(
     termHeight: Dp,
     palette: TerminalPalette,
     gutter: Dp,
+    sessionId: String?,
 ) {
     val sessions by vm.sessions.collectAsState()
     val tick by vm.tick.collectAsState()
@@ -332,12 +399,6 @@ private fun SessionDetailPane(
     val prefs = remember { MTermPrefs(context.applicationContext) }
     val fontSize by prefs.fontSize.collectAsState(initial = 14f)
     val extraKeys by prefs.extraKeys.collectAsState(initial = MTermPrefs.DEFAULT_EXTRA_KEYS)
-
-    var selected by remember { mutableStateOf<String?>(null) }
-    val ids = sessions.keys
-    if (selected != null && selected !in ids) selected = ids.firstOrNull()
-    if (selected == null && ids.isNotEmpty()) selected = ids.firstOrNull()
-    val sessionId = selected
 
     var ctrlLatch by remember { mutableStateOf(false) }
     var altLatch by remember { mutableStateOf(false) }

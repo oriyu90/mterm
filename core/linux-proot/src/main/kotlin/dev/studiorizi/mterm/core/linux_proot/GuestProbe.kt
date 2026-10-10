@@ -37,6 +37,7 @@ object GuestProbe {
         tmpDir: File,
         script: String,
         timeoutMs: Long = 60_000,
+        extraGuestEnv: List<String> = emptyList(),
     ): Result<ProbeResult> = withContext(Dispatchers.IO) {
         try {
             if (!prootBin.isFile || !prootBin.canExecute()) {
@@ -58,6 +59,7 @@ object GuestProbe {
                 bridgeDir,
                 mirrorDir,
                 listOf("/bin/sh", "-c", script),
+                extraGuestEnv,
             )
             // Watchdog, not coroutine timeout: the PTY read below blocks in
             // JNI (uncancellable), so on expiry we SIGKILL the group and

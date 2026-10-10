@@ -7,62 +7,143 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.studiorizi.mterm.core.data.MTermPrefs
 import dev.studiorizi.mterm.core.storage_mirror.ConflictDecision
 import dev.studiorizi.mterm.core.storage_mirror.ConflictInfo
 import dev.studiorizi.mterm.core.storage_mirror.StorageMirrorManager
 import dev.studiorizi.mterm.full.R
+import dev.studiorizi.mterm.full.backend.SafSyncEngine
 import java.io.File
+import kotlinx.coroutines.launch
 
 /**
- * SAF tree picker + mirror status + manual sync + conflict dialog.
+ * SAF tree picker + real mirror sync + conflict resolution.
  *
- * Sync itself runs through [StorageMirrorManager] bookkeeping; SAF
- * DocumentFile I/O stays in the platform layer and guest paths are mapped
- * via [dev.studiorizi.mterm.core.linux_core.RootfsPathMapper] by callers.
- * Conflicts never auto-overwrite: the user picks KEEP_ANDROID /
- * KEEP_LINUX / DUPLICATE.
+ * The picked tree URI and derived mount id persist in [MTermPrefs]; Sync now
+ * copies SAF -> `shared/<mountId>/mirror/` (visible in the guest at
+ * `/mnt/shared`), journaling every copy. Both-sides-changed files surface
+ * as conflicts resolved by real copies (never silent overwrites).
  */
 @Composable
 fun StorageScreen() {
     val context = LocalContext.current
+    val appContext = context.applicationContext
+    val prefs = remember { MTermPrefs(appContext) }
+    val scope = rememberCoroutineScope()
     val manager = remember {
-        StorageMirrorManager(File(context.filesDir, "shared"))
+        StorageMirrorManager(File(appContext.filesDir, "shared"))
     }
-    var treeUri by remember { mutableStateOf<Uri?>(null) }
-    var conflict by remember { mutableStateOf<ConflictInfo?>(null) }
+    val savedUri by prefs.safTreeUri.collectAsState(initial = "")
+    val savedMount by prefs.safMountId.collectAsState(initial = "")
+
+    var busy by remember { mutableStateOf(false) }
+    var progress by remember { mutableStateOf<String?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
+    var conflicts by remember { mutableStateOf(listOf<ConflictInfo>()) }
+    var conflict by remember { mutableStateOf<ConflictInfo?>(null) }
 
     val treePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
-    ) { uri ->
-        treeUri = uri
-        if (uri != null) {
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        try {
+            appContext.contentResolver.takePersistableUriPermission(
+                uri,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+        } catch (_: SecurityException) {
+            status = context.getString(R.string.saf_no_tree)
+            return@rememberLauncherForActivityResult
+        }
+        val mountId = SafSyncEngine.mountIdFor(uri)
+        scope.launch {
+            prefs.setSafTree(uri.toString(), mountId)
+            status = context.getString(R.string.mirror_needs_sync)
+            conflicts = emptyList()
+        }
+    }
+
+    fun runSync() {
+        if (busy || savedUri.isEmpty() || savedMount.isEmpty()) return
+        busy = true
+        progress = null
+        status = null
+        scope.launch {
             try {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                val result = SafSyncEngine.importTree(
+                    appContext,
+                    Uri.parse(savedUri),
+                    manager,
+                    savedMount,
+                    onProgress = { files, bytes ->
+                        progress = context.getString(R.string.sync_progress, files, bytes / 1024)
+                    },
+                ).getOrElse {
+                    status = context.getString(R.string.sync_failed, "${it.message}")
+                    return@launch
+                }
+                progress = null
+                conflicts = result.conflicts
+                status = context.getString(
+                    R.string.sync_done,
+                    result.copied,
+                    result.skippedUpToDate,
+                    result.conflicts.size,
                 )
-            } catch (_: SecurityException) {
-                // Permission not persistable on this device; one-shot use only.
+            } finally {
+                busy = false
             }
         }
+    }
+
+    fun resolve(info: ConflictInfo, decision: ConflictDecision) {
+        if (busy) return
+        busy = true
+        scope.launch {
+            try {
+                SafSyncEngine.resolveConflict(
+                    appContext,
+                    Uri.parse(savedUri),
+                    manager,
+                    savedMount,
+                    info,
+                    decision,
+                ).getOrElse {
+                    status = context.getString(R.string.sync_failed, "${it.message}")
+                    return@launch
+                }
+                conflicts = conflicts.filterNot { it.path == info.path }
+                status = context.getString(R.string.mirror_healthy)
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    LaunchedEffect(savedUri) {
+        if (savedUri.isEmpty()) conflicts = emptyList()
     }
 
     Column(
@@ -82,7 +163,11 @@ fun StorageScreen() {
         Spacer(Modifier.height(8.dp))
 
         Text(
-            treeUri?.toString() ?: stringResource(R.string.saf_no_tree),
+            if (savedUri.isEmpty()) {
+                stringResource(R.string.saf_no_tree)
+            } else {
+                savedMount.ifEmpty { savedUri }
+            },
             style = MaterialTheme.typography.bodySmall,
         )
         Spacer(Modifier.height(8.dp))
@@ -93,24 +178,35 @@ fun StorageScreen() {
             }
         }
         Spacer(Modifier.height(8.dp))
-        TButton(
-            onClick = {
-                // Demo conflict probe: both sides newer than last sync.
-                val now = System.currentTimeMillis()
-                val found = manager.detectConflict(
-                    androidMtime = now,
-                    linuxMtime = now,
-                    lastSync = now - 60_000,
-                    path = "shared/demo.txt",
-                )
-                if (found != null) {
-                    conflict = found
+        TButton(onClick = ::runSync) {
+            Text(
+                if (busy) {
+                    stringResource(R.string.sync_running)
                 } else {
-                    status = context.getString(R.string.mirror_healthy)
+                    stringResource(R.string.sync_now)
+                },
+            )
+        }
+        progress?.let {
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(4.dp))
+            Text(it, style = MaterialTheme.typography.bodySmall)
+        }
+        if (conflicts.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stringResource(R.string.conflict_list, conflicts.size),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            conflicts.take(20).forEach { info ->
+                TButton(
+                    onClick = { conflict = info },
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    Text(info.path.take(48))
                 }
-            },
-        ) {
-            Text(stringResource(R.string.sync_now))
+            }
         }
     }
 
@@ -118,13 +214,8 @@ fun StorageScreen() {
         ConflictDialog(
             info = info,
             onDecision = { decision ->
-                when (decision) {
-                    ConflictDecision.KEEP_ANDROID,
-                    ConflictDecision.KEEP_LINUX,
-                    ConflictDecision.DUPLICATE,
-                    -> status = context.getString(R.string.mirror_healthy)
-                }
                 conflict = null
+                resolve(info, decision)
             },
             onDismiss = { conflict = null },
         )

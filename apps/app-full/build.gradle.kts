@@ -140,6 +140,15 @@ val syncProotAssets by tasks.registering(Copy::class) {
     into(layout.buildDirectory.dir("generated/proot-assets/bin"))
 }
 
+// Ship the guest bridge CLI (tools/bridge-cli/*.sh) so the Debian guest can
+// reach AndroidBridgeServer; installed to /usr/local/bin by BridgeCliInstaller.
+val syncBridgeAssets by tasks.registering(Copy::class) {
+    from("${rootDir}/tools/bridge-cli") {
+        include("*.sh")
+    }
+    into(layout.buildDirectory.dir("generated/proot-assets/bridge-cli"))
+}
+
 tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach {
-    dependsOn(syncProotAssets)
+    dependsOn(syncProotAssets, syncBridgeAssets)
 }

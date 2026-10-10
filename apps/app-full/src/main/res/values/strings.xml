@@ -20,6 +20,11 @@
     <string name="paste">Paste</string>
     <string name="sync">Sync</string>
     <string name="sync_now">Sync now</string>
+    <string name="sync_running">Syncing…</string>
+    <string name="sync_progress">%1$d files, %2$d KB copied</string>
+    <string name="sync_done">Copied %1$d, up to date %2$d, conflicts %3$d</string>
+    <string name="sync_failed">Sync failed: %1$s</string>
+    <string name="conflict_list">Conflicts (%1$d) — tap to resolve</string>
     <string name="cancel">Cancel</string>
     <string name="close">Close</string>
     <string name="ok">OK</string>
@@ -127,6 +132,7 @@
     <string name="error_backend_unsupported">This session type is not available in this build.</string>
     <string name="session_exited_code">Session exited (code %1$d).</string>
     <string name="session_running">Running</string>
+    <string name="close_selected">Close selected</string>
     <string name="linux_setup">Linux setup</string>
     <string name="linux_proot_title">PRoot runtime</string>
     <string name="linux_proot_missing">Not installed</string>
@@ -157,6 +163,14 @@
     <string name="linux_output">Output</string>
     <string name="linux_note_claude_auth">Claude Code needs sign-in (OAuth/API key) inside the Debian session afterwards.</string>
     <string name="linux_open_terminal">Open Debian session</string>
+    <string name="bridge_channel">Terminal bridge</string>
+    <string name="bridge_open_url">Open link from Debian</string>
+    <string name="battery_title">Background execution</string>
+    <string name="battery_unrestricted">Battery: unrestricted</string>
+    <string name="battery_restricted">Battery: optimized (background network may idle)</string>
+    <string name="battery_unknown">Battery: unknown</string>
+    <string name="battery_request">Allow unrestricted</string>
+    <string name="battery_note">Optional. Sessions keep running without it; Doze may idle background network sooner.</string>
     <string name="session_starting">Starting…</string>
     <string name="session_finished">Finished — open a new session.</string>
     <string name="tap_terminal_hint">Tap the terminal to show the keyboard.</string>

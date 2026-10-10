@@ -74,4 +74,24 @@ object BridgeCodec {
     }
 
     fun isValidMethod(m: String): Boolean = m in BridgeMethods.ALL
+
+    fun encodeResponse(res: BridgeResponse): ByteArray {
+        val payload = json.encodeToString(BridgeResponse.serializer(), res).toByteArray(Charsets.UTF_8)
+        require(payload.size in 1..MAX_PAYLOAD_BYTES) { "payload size out of range: ${payload.size}" }
+        val buf = ByteBuffer.allocate(4 + payload.size).order(ByteOrder.BIG_ENDIAN)
+        buf.putInt(payload.size)
+        buf.put(payload)
+        return buf.array()
+    }
+
+    fun decodeResponse(bytes: ByteArray): BridgeResponse {
+        require(bytes.size >= 4) { "frame too short: ${bytes.size}" }
+        val length = ByteBuffer.wrap(bytes, 0, 4).order(ByteOrder.BIG_ENDIAN).int
+        require(length in 1..MAX_PAYLOAD_BYTES) { "invalid length prefix: $length" }
+        require(bytes.size - 4 == length) { "length prefix mismatch" }
+        return json.decodeFromString(
+            BridgeResponse.serializer(),
+            bytes.copyOfRange(4, bytes.size).toString(Charsets.UTF_8),
+        )
+    }
 }

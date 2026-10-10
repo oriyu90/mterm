@@ -50,11 +50,15 @@ fun DiagnosticsScreen(viewModel: TerminalViewModel) {
     var nestedExecResult by remember { mutableStateOf<String?>(null) }
     var netValue by remember { mutableStateOf<String?>(null) }
     var freeValue by remember { mutableStateOf<String?>(null) }
+    var bridgeResult by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        bridgeResult = viewModel.bridgePing()
+    }
 
     val pass = stringResource(R.string.pass)
     val fail = stringResource(R.string.fail)
     val unverified = stringResource(R.string.diag_status_runtime_required)
-    val unsupported = stringResource(R.string.diag_status_unsupported)
     val unknown = stringResource(R.string.unknown)
 
     LaunchedEffect(Unit) {
@@ -111,7 +115,7 @@ fun DiagnosticsScreen(viewModel: TerminalViewModel) {
         else -> unverified
     }
     val debianStatus = if (rootfsDir.isDirectory) pass else unverified
-    val report = remember(ptyResult, appDataExecResult, nestedExecResult) {
+    val report = remember(ptyResult, appDataExecResult, nestedExecResult, bridgeResult) {
         DiagnosticsCollector.collect(
             androidApi = Build.VERSION.SDK_INT,
             manufacturer = Build.MANUFACTURER ?: context.getString(R.string.unknown),
@@ -129,7 +133,7 @@ fun DiagnosticsScreen(viewModel: TerminalViewModel) {
             processCount = viewModel.processCount(),
             rootSu = caps?.suAvailable == true,
             storageGrants = context.contentResolver.persistedUriPermissions.size,
-            bridge = unsupported,
+            bridge = bridgeResult ?: unverified,
         )
     }
 
@@ -169,6 +173,20 @@ fun DiagnosticsScreen(viewModel: TerminalViewModel) {
             stringResource(R.string.saf_grants) + ": ${report.storageGrants}",
         )
         DiagRow(stringResource(R.string.diag_bridge), report.bridge)
+        val batteryExempt = try {
+            val pm = context.applicationContext.getSystemService(android.os.PowerManager::class.java)
+            pm?.isIgnoringBatteryOptimizations(context.packageName)
+        } catch (_: Exception) {
+            null
+        }
+        DiagRow(
+            stringResource(R.string.battery_title),
+            when (batteryExempt) {
+                true -> stringResource(R.string.battery_unrestricted)
+                false -> stringResource(R.string.battery_restricted)
+                null -> stringResource(R.string.battery_unknown)
+            },
+        )
 
         Spacer(Modifier.height(16.dp))
         TButton(

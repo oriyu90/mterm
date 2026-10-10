@@ -14,11 +14,13 @@ for kv in "$@"; do
   PARAMS="$PARAMS\"$k\":\"$v_esc\","
 done
 PARAMS="$(printf '%s' "$PARAMS" | sed 's/,$//')}"
-JSON="{\"v\":1,\"id\":\"$ID\",\"method\":\"$METHOD\",\"params\":{$PARAMS}}"
-if [ ! -S "$SOCK" ]; then echo "bridge unavailable: $SOCK" >&2; exit 69; fi
+JSON="{\"v\":1,\"id\":\"$ID\",\"method\":\"$METHOD\",\"params\":$PARAMS}"
+# Abstract-namespace sockets (@name) have no filesystem entry to test.
+if [ "${SOCK#@}" = "$SOCK" ] && [ ! -S "$SOCK" ]; then echo "bridge unavailable: $SOCK" >&2; exit 69; fi
 printf '%s' "$JSON" | python3 -c "
 import json,os,socket,struct,sys
 sock=os.environ.get('MTERM_BRIDGE_SOCK','/run/android-bridge/bridge.sock')
+if sock.startswith('@'): sock='\0'+sock[1:]
 data=sys.stdin.read().encode()
 s=socket.socket(socket.AF_UNIX); s.connect(sock)
 s.sendall(struct.pack('>I',len(data))+data)

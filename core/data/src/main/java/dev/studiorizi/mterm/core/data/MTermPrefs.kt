@@ -30,6 +30,12 @@ class MTermPrefs(private val context: Context) {
         context.mtermDataStore.data.map { it[Keys.AUTO_MIRROR_SYNC] ?: true }
     val lastAutoTune: Flow<String> =
         context.mtermDataStore.data.map { it[Keys.LAST_AUTO_TUNE] ?: "" }
+    /** Persisted SAF tree URI for the shared-folder mirror (empty = none). */
+    val safTreeUri: Flow<String> =
+        context.mtermDataStore.data.map { it[Keys.SAF_TREE_URI] ?: "" }
+    /** Mount id derived from [safTreeUri] (empty = none). */
+    val safMountId: Flow<String> =
+        context.mtermDataStore.data.map { it[Keys.SAF_MOUNT_ID] ?: "" }
 
     suspend fun setTheme(value: String) {
         context.mtermDataStore.edit { it[Keys.THEME] = value }
@@ -67,6 +73,20 @@ class MTermPrefs(private val context: Context) {
         context.mtermDataStore.edit { it[Keys.LAST_AUTO_TUNE] = value.take(2000) }
     }
 
+    suspend fun setSafTree(treeUri: String, mountId: String) {
+        context.mtermDataStore.edit {
+            it[Keys.SAF_TREE_URI] = treeUri.take(2000)
+            it[Keys.SAF_MOUNT_ID] = mountId.take(64)
+        }
+    }
+
+    suspend fun clearSafTree() {
+        context.mtermDataStore.edit {
+            it.remove(Keys.SAF_TREE_URI)
+            it.remove(Keys.SAF_MOUNT_ID)
+        }
+    }
+
     private object Keys {
         val THEME = stringPreferencesKey("theme")
         val FONT_SIZE = floatPreferencesKey("font_size")
@@ -77,6 +97,8 @@ class MTermPrefs(private val context: Context) {
         val WIFI_ONLY_DOWNLOAD = booleanPreferencesKey("wifi_only_download")
         val AUTO_MIRROR_SYNC = booleanPreferencesKey("auto_mirror_sync")
         val LAST_AUTO_TUNE = stringPreferencesKey("last_auto_tune")
+        val SAF_TREE_URI = stringPreferencesKey("saf_tree_uri")
+        val SAF_MOUNT_ID = stringPreferencesKey("saf_mount_id")
     }
 
     companion object {

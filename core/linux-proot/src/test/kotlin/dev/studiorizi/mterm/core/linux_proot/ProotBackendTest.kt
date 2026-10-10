@@ -33,7 +33,8 @@ class ProotBackendTest {
         val argv = prepared.argv
         assertTrue(argv.contains("--rootfs=/data/rootfs"))
         assertTrue(argv.contains("--bind=/data/bridge:/run/android-bridge"))
-        assertTrue(argv.contains("--bind=/data/mirror:/mnt/shared"))
+        // Whole shared tree (parent of mirrorDir) is bound, not mirror/ alone.
+        assertTrue(argv.contains("--bind=/data:/mnt/shared"))
         assertTrue(argv.takeLast(2) == ProotBackend.DEFAULT_SHELL)
     }
 

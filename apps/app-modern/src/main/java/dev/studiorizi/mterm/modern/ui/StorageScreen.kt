@@ -29,7 +29,7 @@ import java.io.File
 @Composable
 fun StorageScreen(app: MTermApp) {
     val mirrorManager = remember { StorageMirrorManager(File(app.filesDir, "shared")) }
-    val pathMapper = remember { RootfsPathMapper(app.rootfsDir, app.bridgeDir) }
+    val pathMapper = remember { RootfsPathMapper(app.rootfsDir, app.bridgeDir, app.mirrorDir) }
     var journalCount by remember { mutableIntStateOf(-1) }
 
     LaunchedEffect(Unit) {

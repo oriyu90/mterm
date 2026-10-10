@@ -85,7 +85,10 @@ class RootfsPathMapperTest {
 
     @Test
     fun `hostToGuest outside returns null`() {
-        val (mapper) = mapper().let { Triple(it.first, it.second, it.third) }
+        // Explicit narrow dirs: tmp/elsewhere is outside shared/.
+        val rootfs = tmp.newFolder("rootfs-out")
+        val shared = tmp.newFolder("shared-out")
+        val mapper = RootfsPathMapper(rootfs, File(shared, "bridge"), File(shared, "mirror"))
         val outside = tmp.newFolder("elsewhere")
         assertNull(mapper.hostToGuest(File(outside, "x")))
     }
@@ -97,5 +100,35 @@ class RootfsPathMapperTest {
             "${RootfsPathMapper.BRIDGE_GUEST_PREFIX}/docs/a.txt",
             mapper.hostToGuest(File(bridge, "docs/a.txt")),
         )
+    }
+
+    @Test
+    fun `hostToGuest mirror maps to shared prefix`() {
+        val rootfs = tmp.newFolder("rootfs2")
+        val shared = tmp.newFolder("shared2")
+        val mapper = RootfsPathMapper(rootfs, File(shared, "bridge"), File(shared, "mirror"))
+        assertEquals(
+            "/mnt/shared/docs/a.txt",
+            mapper.hostToGuest(File(shared, "mirror/docs/a.txt")),
+        )
+        assertEquals("/run/android-bridge", mapper.hostToGuest(File(shared, "bridge")))
+    }
+
+    @Test
+    fun `sharedToHost resolves under shared tree`() {
+        val rootfs = tmp.newFolder("rootfs3")
+        val shared = tmp.newFolder("shared3")
+        val mapper = RootfsPathMapper(rootfs, File(shared, "bridge"), File(shared, "mirror"))
+        val ok = mapper.sharedToHost("/mnt/shared/mnt1/mirror/docs/a.txt").getOrThrow()
+        assertEquals(File(shared, "mnt1/mirror/docs/a.txt").absolutePath, ok.absolutePath)
+        assertEquals(
+            File(shared, "inbox/f.txt").absolutePath,
+            mapper.sharedToHost("/mnt/shared/inbox/f.txt").getOrThrow().absolutePath,
+        )
+        assertEquals(shared.absolutePath, mapper.sharedToHost("/mnt/shared").getOrThrow().absolutePath)
+        assertTrue(mapper.sharedToHost("/etc/hosts").isFailure)
+        assertTrue(mapper.sharedToHost("/mnt/shared/../etc/hosts").isFailure)
+        assertTrue(mapper.sharedToHost("/mnt/shared/bridge/bridge.sock").isFailure)
+        assertTrue(mapper.sharedToHost("relative/path").isFailure)
     }
 }

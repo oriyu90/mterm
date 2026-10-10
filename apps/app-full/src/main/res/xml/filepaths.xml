@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <!-- Guest paths mapped via RootfsPathMapper are shared through here. -->
+    <!-- Guest shared paths (shared/<mount>/mirror/...) resolve under here. -->
     <files-path name="shared" path="shared/" />
-    <files-path name="mirror" path="shared/" />
     <cache-path name="cache" path="." />
 </paths>

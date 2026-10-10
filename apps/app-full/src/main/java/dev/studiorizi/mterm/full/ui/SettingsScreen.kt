@@ -195,6 +195,11 @@ fun SettingsScreen() {
                 },
             )
         }
+        Spacer(Modifier.height(16.dp))
+        Text(
+            stringResource(R.string.battery_title),
+            style = MaterialTheme.typography.titleMedium,
+        )
         val applied = lastTune.ifEmpty { null }
         tuneReport?.let { report ->
             Spacer(Modifier.height(8.dp))
@@ -215,6 +220,70 @@ fun SettingsScreen() {
             }
         }
     }
+}
+
+/**
+ * Battery-optimization exemption for long-running sessions/servers.
+ * Requesting is optional and refusal changes nothing: the foreground
+ * service keeps working, only Doze may idle background network sooner.
+ */
+@Composable
+private fun BatterySection() {
+    val context = LocalContext.current
+    val pm = remember {
+        context.applicationContext.getSystemService(android.os.PowerManager::class.java)
+    }
+    var exempt by remember { mutableStateOf<Boolean?>(null) }
+    fun refresh() {
+        exempt = try {
+            pm?.isIgnoringBatteryOptimizations(context.packageName) == true
+        } catch (_: Exception) {
+            null
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(Unit) { refresh() }
+    val requester = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+    ) { refresh() }
+    Text(
+        stringResource(R.string.battery_title),
+        style = MaterialTheme.typography.titleMedium,
+    )
+    Text(
+        when (exempt) {
+            true -> stringResource(R.string.battery_unrestricted)
+            false -> stringResource(R.string.battery_restricted)
+            null -> stringResource(R.string.battery_unknown)
+        },
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    Spacer(Modifier.height(8.dp))
+    TButton(
+        onClick = {
+            val intent = try {
+                android.content.Intent(
+                    android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    android.net.Uri.parse("package:" + context.packageName),
+                )
+            } catch (_: Exception) {
+                null
+            } ?: android.content.Intent(
+                android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS,
+            )
+            try {
+                requester.launch(intent)
+            } catch (_: Exception) {
+            }
+            refresh()
+        },
+    ) {
+        Text(stringResource(R.string.battery_request))
+    }
+    Spacer(Modifier.height(4.dp))
+    Text(
+        stringResource(R.string.battery_note),
+        style = MaterialTheme.typography.bodySmall,
+    )
 }
 
 @Composable
