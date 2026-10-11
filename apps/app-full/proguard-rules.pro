@@ -38,3 +38,6 @@
 # RSA/ECDSA servers verify fine; ssh-ed25519 host keys may fail verification
 # on Android (surfaced as a normal connect failure, never a crash).
 -dontwarn sun.security.x509.X509Key
+# SpongyCastle's LDAP cert store references javax.naming (absent on Android,
+# unused by SSH): silence R8 about the unreachable path.
+-dontwarn javax.naming.**
