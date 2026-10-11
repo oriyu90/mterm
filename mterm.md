@@ -1,4 +1,4 @@
-# mterm 保守メモ（公開サイトには載せない）
+# aTerm 保守メモ（公開サイトには載せない）
 
 > 保存先ルール: `oriyu90/mterm` の `main` 直下 `mterm.md` に集約（common rules ルール6）。
 > 設計正本は `docs/IMPLEMENTATION_PLAN.md`（実装計画書 v1.0 / 2026-09-29、572行）。

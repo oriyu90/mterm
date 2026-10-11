@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">mterm Full</string>
+    <string name="app_name">aTerm Full</string>
     <string name="terminal">Terminal</string>
     <string name="sessions">Sessions</string>
     <string name="new_session">New session</string>
@@ -53,7 +53,7 @@
     <string name="keep_linux">Keep Linux</string>
     <string name="duplicate">Duplicate</string>
     <string name="unsupported_title">Unsupported device</string>
-    <string name="unsupported_message">mterm Full requires Android 10 (API 29) or later. This device reports API %1$d.</string>
+    <string name="unsupported_message">aTerm Full requires Android 10 (API 29) or later. This device reports API %1$d.</string>
     <string name="fgs_channel_name">Active terminal sessions</string>
     <string name="fgs_channel_desc">Shows while terminal sessions are running</string>
     <string name="fgs_content_title">%1$d terminal sessions running</string>

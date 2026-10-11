@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">mterm Full</string>
+    <string name="app_name">aTerm Full</string>
     <string name="terminal">ターミナル</string>
     <string name="sessions">セッション</string>
     <string name="new_session">新規セッション</string>
@@ -53,7 +53,7 @@
     <string name="keep_linux">Linuxを保持</string>
     <string name="duplicate">複製する</string>
     <string name="unsupported_title">未対応の端末</string>
-    <string name="unsupported_message">mterm FullにはAndroid 10（API 29）以降が必要です。この端末はAPI %1$dです。</string>
+    <string name="unsupported_message">aTerm FullにはAndroid 10（API 29）以降が必要です。この端末はAPI %1$dです。</string>
     <string name="fgs_channel_name">実行中のターミナルセッション</string>
     <string name="fgs_channel_desc">ターミナルセッションの実行中に表示されます</string>
     <string name="fgs_content_title">%1$d 件のターミナルセッションを実行中</string>

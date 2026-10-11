@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">MTerm Modern</string>
+    <string name="app_name">aTerm Modern</string>
     <string name="experimental">Experimental</string>
     <string name="exec_broker">ExecBroker</string>
     <string name="qualification">Qualification</string>

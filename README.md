@@ -1,4 +1,4 @@
-# mterm — Android Linux Workstation Terminal
+# aTerm — Android Linux Workstation Terminal
 
 > Author: Yuki_Orita（折田悠希 / おりたゆうき）
 > License: MIT — see [LICENSE](LICENSE)
@@ -13,7 +13,7 @@
 
 ### 概要
 
-**mterm** は、Android 上で Debian 13 (trixie / arm64) の userland を主環境として使うためのターミナル・ワークステーションです。Android の shell ではなく Debian を主環境とし、PTY ベースの Terminal Emulator → Session Manager → PRoot (non-root) / chroot (root) の二系統で Linux を実行します。
+**aTerm** は、Android 上で Debian 13 (trixie / arm64) の userland を主環境として使うためのターミナル・ワークステーションです。Android の shell ではなく Debian を主環境とし、PTY ベースの Terminal Emulator → Session Manager → PRoot (non-root) / chroot (root) の二系統で Linux を実行します。
 
 設計の詳細は [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)（2026-09 実装計画書 v1.0、元設計書 2026-09-05 を具体化）に集約しています。本 README は実装の到達点と使い方の正本です。
 
@@ -104,7 +104,7 @@ bash scripts/check-elf-alignment.sh
 
 ### Overview
 
-**mterm** is a terminal workstation that runs Debian 13 (trixie / arm64) userland as the primary environment on Android — not the Android shell. It uses a PTY-based Terminal Emulator → Session Manager → PRoot (non-root) / chroot (root) pipeline.
+**aTerm** is a terminal workstation that runs Debian 13 (trixie / arm64) userland as the primary environment on Android — not the Android shell. It uses a PTY-based Terminal Emulator → Session Manager → PRoot (non-root) / chroot (root) pipeline.
 
 The full design is in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) (Sep 2026 plan v1.0). This README is the normative implementation summary.
 
