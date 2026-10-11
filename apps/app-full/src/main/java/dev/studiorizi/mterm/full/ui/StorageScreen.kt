@@ -3,6 +3,7 @@ package dev.studiorizi.mterm.full.ui
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -62,6 +63,7 @@ fun StorageScreen() {
     var status by remember { mutableStateOf<String?>(null) }
     var conflicts by remember { mutableStateOf(listOf<ConflictInfo>()) }
     var conflict by remember { mutableStateOf<ConflictInfo?>(null) }
+    var syncJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     val treePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
@@ -90,7 +92,7 @@ fun StorageScreen() {
         busy = true
         progress = null
         status = null
-        scope.launch {
+        syncJob = scope.launch {
             try {
                 val result = SafSyncEngine.importTree(
                     appContext,
@@ -112,10 +114,17 @@ fun StorageScreen() {
                     result.skippedUpToDate,
                     result.conflicts.size,
                 )
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                status = context.getString(R.string.sync_cancelled)
             } finally {
                 busy = false
+                syncJob = null
             }
         }
+    }
+
+    fun cancelSync() {
+        syncJob?.cancel()
     }
 
     fun resolve(info: ConflictInfo, decision: ConflictDecision) {
@@ -178,14 +187,21 @@ fun StorageScreen() {
             }
         }
         Spacer(Modifier.height(8.dp))
-        TButton(onClick = ::runSync) {
-            Text(
-                if (busy) {
-                    stringResource(R.string.sync_running)
-                } else {
-                    stringResource(R.string.sync_now)
-                },
-            )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TButton(onClick = ::runSync, enabled = !busy) {
+                Text(
+                    if (busy) {
+                        stringResource(R.string.sync_running)
+                    } else {
+                        stringResource(R.string.sync_now)
+                    },
+                )
+            }
+            if (busy) {
+                TButton(onClick = ::cancelSync) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
         }
         progress?.let {
             Spacer(Modifier.height(8.dp))
@@ -206,6 +222,12 @@ fun StorageScreen() {
                 ) {
                     Text(info.path.take(48))
                 }
+            }
+            if (conflicts.size > 20) {
+                Text(
+                    stringResource(R.string.conflicts_more, conflicts.size - 20),
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }

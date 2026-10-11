@@ -4,6 +4,8 @@ import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.Buffer
@@ -72,6 +74,18 @@ class SshConnection private constructor(
 
     fun close() {
         try {
+            shell.close()
+        } catch (_: Exception) {
+        }
+        try {
+            remoteIn.close()
+        } catch (_: Exception) {
+        }
+        try {
+            remoteOut.close()
+        } catch (_: Exception) {
+        }
+        try {
             session.close()
         } catch (_: Exception) {
         }
@@ -104,8 +118,13 @@ class SshConnection private constructor(
             knownHostsFile: File,
             rows: Int,
             cols: Int,
+            isCancelled: () -> Boolean = { false },
         ): SshConnection = withContext(Dispatchers.IO) {
             val client = SSHClient()
+            // Blocking sshj calls ignore coroutine cancellation. The trust
+            // waiter below aborts promptly via [isCancelled]; socket phases
+            // are bounded by their own timeouts (15s). All catches rethrow
+            // as CancellationException through ensureActive().
             try {
                 client.connectTimeout = CONNECT_TIMEOUT_MS
                 client.timeout = CONNECT_TIMEOUT_MS
@@ -117,10 +136,13 @@ class SshConnection private constructor(
                 val kex = orderKexFactories(client.transport.config.keyExchangeFactories)
                 require(kex.isNotEmpty()) { "no usable key exchange" }
                 client.transport.config.setKeyExchangeFactories(kex)
-                client.addHostKeyVerifier(verifier(host, port, knownHostsFile))
+                client.addHostKeyVerifier(verifier(host, port, knownHostsFile, isCancelled))
                 try {
                     client.connect(host, port)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
+                    coroutineContext.ensureActive()
                     throw SshFailure("connect $host:$port: ${short(e)}", e)
                 }
                 try {
@@ -136,7 +158,10 @@ class SshConnection private constructor(
                             }
                         }
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
+                    coroutineContext.ensureActive()
                     throw SshFailure("auth $user@$host: ${short(e)}", e)
                 } catch (t: Throwable) {
                     // E.g. NoClassDefFoundError if the server insists on an
@@ -146,6 +171,7 @@ class SshConnection private constructor(
                 val session = try {
                     client.startSession()
                 } catch (e: Exception) {
+                    coroutineContext.ensureActive()
                     throw SshFailure("open session: ${short(e)}", e)
                 }
                 val shell = try {
@@ -156,9 +182,20 @@ class SshConnection private constructor(
                         session.close()
                     } catch (_: Exception) {
                     }
+                    coroutineContext.ensureActive()
                     throw SshFailure("open shell: ${short(e)}", e)
                 }
                 SshConnection(client, session, shell, shell.inputStream, shell.outputStream)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                try {
+                    client.disconnect()
+                } catch (_: Exception) {
+                }
+                try {
+                    client.close()
+                } catch (_: Exception) {
+                }
+                throw e
             } catch (e: Exception) {
                 try {
                     client.disconnect()
@@ -168,6 +205,7 @@ class SshConnection private constructor(
                     client.close()
                 } catch (_: Exception) {
                 }
+                coroutineContext.ensureActive()
                 throw if (e is SshFailure) e else SshFailure("ssh $host:$port: ${short(e)}", e)
             }
         }
@@ -176,6 +214,7 @@ class SshConnection private constructor(
             host: String,
             port: Int,
             knownHostsFile: File,
+            isCancelled: () -> Boolean,
         ): net.schmizz.sshj.transport.verification.HostKeyVerifier =
             object : net.schmizz.sshj.transport.verification.HostKeyVerifier {
                 override fun verify(hostname: String, port: Int, key: java.security.PublicKey): Boolean {
@@ -187,7 +226,7 @@ class SshConnection private constructor(
                     } catch (_: Exception) {
                         "unprintable key"
                     }
-                    return when (SshTrust.awaitDecision(host, port, fp, TRUST_TIMEOUT_MS)) {
+                    return when (SshTrust.awaitDecision(host, port, fp, TRUST_TIMEOUT_MS, isCancelled)) {
                         SshTrust.Decision.DENY -> false
                         SshTrust.Decision.ONCE -> true
                         SshTrust.Decision.ALWAYS -> {
@@ -201,16 +240,26 @@ class SshConnection private constructor(
                     emptyList()
             }
 
+        private val knownHostsLock = Any()
+
         private fun verifyKnown(file: File, host: String, port: Int, key: java.security.PublicKey): Boolean {
             if (!file.isFile) return false
             return try {
-                OpenSSHKnownHosts(file).verify(host, port, key)
+                synchronized(knownHostsLock) {
+                    OpenSSHKnownHosts(file).verify(host, port, key)
+                }
             } catch (_: Exception) {
                 false
             }
         }
 
         private fun appendKnownHost(file: File, host: String, port: Int, key: java.security.PublicKey) {
+            synchronized(knownHostsLock) {
+                appendKnownHostLocked(file, host, port, key)
+            }
+        }
+
+        private fun appendKnownHostLocked(file: File, host: String, port: Int, key: java.security.PublicKey) {
             try {
                 val type = KeyType.fromKey(key).toString()
                 val blob = Buffer.PlainBuffer().putPublicKey(key).compactData

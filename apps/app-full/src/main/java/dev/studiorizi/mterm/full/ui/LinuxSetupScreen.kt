@@ -93,7 +93,13 @@ fun LinuxSetupScreen(onOpenTerminal: () -> Unit) {
     }
 
     fun appendLog(line: String) {
-        log = (log + "\n$ " + line.take(4000)).takeLast(8000)
+        val entry = "\n$ " + line.take(4000)
+        val combined = log + entry
+        log = if (combined.length > 8000) {
+            "…[truncated]\n" + combined.takeLast(8000)
+        } else {
+            combined
+        }
     }
 
     fun runGuarded(block: suspend () -> Unit) {

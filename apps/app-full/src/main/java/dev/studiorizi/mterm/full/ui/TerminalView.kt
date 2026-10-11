@@ -136,11 +136,14 @@ fun TerminalView(
         val target = revealRequest?.first
         val snap = latestSnapshot.value
         if (target != null && snap != null) {
-            val ordinal = if (target < snap.sbCount) {
+            val raw = if (target < snap.sbCount) {
                 target - snap.backFrom
             } else {
                 snap.back.size + (target - snap.sbCount)
             }
+            // Matches older than the rendered window clamp to the top; the
+            // caller shows an "above visible buffer" notice for those.
+            val ordinal = raw.coerceIn(0, snap.back.size + snap.rows.size - 1)
             if (ordinal >= 0 && ordinal < snap.back.size + snap.rows.size) {
                 scroll.scrollTo((ordinal * lineHeightPx).toInt().coerceAtLeast(0))
             }
@@ -387,4 +390,13 @@ private const val LINE_HEIGHT_FACTOR = 1.25f
 private const val CELL_ADVANCE_FACTOR = 0.6f
 private const val RESIZE_DEBOUNCE_MS = 150L
 private const val SCROLL_STICK_PX = 48
-private const val MAX_RENDER_SCROLLBACK = 300
+
+/**
+ * Rendered scrollback cap (frame budget). Search covers the full buffer;
+ * matches older than this are counted but not rendered — callers show a
+ * notice via [renderedFrom].
+ */
+const val MAX_RENDER_SCROLLBACK = 300
+
+/** Unified line index of the oldest rendered line (sbCount - cap, floored). */
+fun renderedFrom(sbCount: Int): Int = (sbCount - MAX_RENDER_SCROLLBACK).coerceAtLeast(0)

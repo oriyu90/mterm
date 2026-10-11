@@ -397,7 +397,7 @@ fun TFilterChip(
         FilterChip(
             selected = selected,
             onClick = onClick,
-            modifier = modifier,
+            modifier = modifier.defaultMinSize(minHeight = 48.dp),
             enabled = enabled,
             label = label,
         )

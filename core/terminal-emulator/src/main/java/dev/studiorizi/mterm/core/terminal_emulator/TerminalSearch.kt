@@ -85,17 +85,8 @@ object TerminalSearch {
         val sb = emu.scrollbackSize()
         val out = ArrayList<String>(sb + 64)
         for (i in 0 until sb) out += emu.getScrollbackLine(i)
-        // Screen row count is not directly exposed; getRowCells returns null
-        // past the end, so probe with a sane bound (rows are at most dozens).
-        var r = 0
-        while (r < 1024) {
-            val cells = emu.getRowCells(r) ?: break
-            out += buildString {
-                for (c in cells) {
-                    if (!c.isContinuation()) append(c.ch)
-                }
-            }.trimEnd()
-            r++
+        for (r in 0 until emu.rows) {
+            out += emu.getLine(r)
         }
         return out
     }

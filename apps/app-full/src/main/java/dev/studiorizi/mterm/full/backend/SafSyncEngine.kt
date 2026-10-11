@@ -12,6 +12,7 @@ import dev.studiorizi.mterm.core.storage_mirror.SyncJournalEntry
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
 
 /**
  * Real SAF <-> mirror sync engine (platform layer).
@@ -88,6 +89,7 @@ object SafSyncEngine {
             val stack = ArrayDeque<Pair<DocumentFile, String>>()
             stack.add(root to "")
             while (stack.isNotEmpty()) {
+                ensureActive()
                 if (files >= MAX_FILES) {
                     truncated = true
                     break
@@ -145,6 +147,8 @@ object SafSyncEngine {
                 }
             }
             Result.success(SyncStats(copied, upToDate, excluded, tooLarge, bytes, truncated, conflicts))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -214,6 +218,8 @@ object SafSyncEngine {
                 }
             }
             Result.success(Unit)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }

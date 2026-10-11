@@ -61,6 +61,13 @@ class TerminalService : Service() {
 
     private var bridgeServer: BridgeServer? = null
 
+    /**
+     * Own scope for the session host (blocking readers, spawn, reapers).
+     * Cancelled shortly after teardown so in-flight work (e.g. an SSH
+     * connect) cannot outlive the service.
+     */
+    private var hostScope: CoroutineScope? = null
+
     inner class LocalBinder : Binder() {
         fun getHost(): TerminalSessionHost = host
         fun getService(): TerminalService = this@TerminalService
@@ -79,11 +86,18 @@ class TerminalService : Service() {
             appVersion(),
             debianReady = { RootfsManager.activeRootfsDir(filesDir).isDirectory },
         ).also { it.start() }
-        // Stop the service once the last session exits.
+        // Stop the service once the last session exits — but only after at
+        // least one session existed. StateFlow replays the initial empty
+        // map on subscribe, so an unconditional stopSelf() would arm
+        // destruction on every creation (rotation unbind would then kill
+        // all PTYs via onDestroy).
+        var everNonEmpty = false
         scope.launch {
             host.sessions.collectLatest { sessions ->
                 updateNotification(sessions.size)
-                if (sessions.isEmpty()) {
+                if (sessions.isNotEmpty()) {
+                    everNonEmpty = true
+                } else if (everNonEmpty) {
                     stopForegroundCompat()
                     stopSelf()
                 }
@@ -120,6 +134,8 @@ class TerminalService : Service() {
         bridgeServer?.stop()
         bridgeServer = null
         host.shutdown()
+        hostScope?.cancel()
+        hostScope = null
         scope.cancel()
         super.onDestroy()
     }
@@ -168,7 +184,9 @@ class TerminalService : Service() {
         )
         return TerminalSessionHost(
             manager = manager,
-            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default).also {
+                hostScope = it
+            },
         )
     }
 

@@ -13,21 +13,20 @@
     <string name="debian">Debian</string>
     <string name="android_shell">Android shell</string>
     <string name="root_chroot">Root chroot</string>
-    <string name="ssh_later">SSH (later)</string>
     <string name="open">Open</string>
     <string name="stop_all">Stop all</string>
     <string name="copy">Copy</string>
-    <string name="paste">Paste</string>
     <string name="sync">Sync</string>
     <string name="sync_now">Sync now</string>
     <string name="sync_running">Syncing…</string>
+    <string name="sync_cancelled">Sync cancelled.</string>
     <string name="sync_progress">%1$d files, %2$d KB copied</string>
     <string name="sync_done">Copied %1$d, up to date %2$d, conflicts %3$d</string>
     <string name="sync_failed">Sync failed: %1$s</string>
     <string name="conflict_list">Conflicts (%1$d) — tap to resolve</string>
+    <string name="conflicts_more">…and %1$d more.</string>
     <string name="cancel">Cancel</string>
     <string name="close">Close</string>
-    <string name="ok">OK</string>
     <string name="retry">Retry</string>
     <string name="save">Save</string>
     <string name="dismiss">Dismiss</string>
@@ -42,7 +41,6 @@
     <string name="font_size">Font size</string>
     <string name="display_scale">Display scale</string>
     <string name="scrollback">Scrollback lines</string>
-    <string name="bridge_sensitive">Treat clipboard copy as sensitive</string>
     <string name="mirror_status">Mirror status</string>
     <string name="mirror_healthy">Mirror is healthy</string>
     <string name="mirror_needs_sync">Mirror needs sync</string>
@@ -56,10 +54,6 @@
     <string name="duplicate">Duplicate</string>
     <string name="unsupported_title">Unsupported device</string>
     <string name="unsupported_message">mterm Full requires Android 10 (API 29) or later. This device reports API %1$d.</string>
-    <string name="perm_fgs_title">Foreground service</string>
-    <string name="perm_fgs_message">The terminal service runs in the foreground while sessions are active.</string>
-    <string name="perm_notif_title">Notifications</string>
-    <string name="perm_notif_message">Allow notifications to see the active-session status. The terminal keeps running even if you deny this.</string>
     <string name="fgs_channel_name">Active terminal sessions</string>
     <string name="fgs_channel_desc">Shows while terminal sessions are running</string>
     <string name="fgs_content_title">%1$d terminal sessions running</string>
@@ -67,15 +61,7 @@
     <string name="fgs_action_open">Open</string>
     <string name="fgs_action_stop">Stop all</string>
     <string name="bridge_open">Open path</string>
-    <string name="bridge_copy">Copy to Android clipboard</string>
-    <string name="bridge_paste">Paste from Android clipboard</string>
-    <string name="bridge_notify">Send notification</string>
-    <string name="bridge_test">Bridge test</string>
-    <string name="bridge_unavailable">Bridge unavailable</string>
-    <string name="notify_test_title">mterm test</string>
-    <string name="notify_test_message">Bridge notification works.</string>
     <string name="copy_done">Copied</string>
-    <string name="paste_empty">Clipboard is empty</string>
     <string name="diag_title">Compatibility report</string>
     <string name="diag_device">Device</string>
     <string name="diag_export">Export report</string>
@@ -114,11 +100,17 @@
     <string name="tune_note_low_ram">Low memory device; scrollback reduced to %1$d lines.</string>
     <string name="tune_note_low_storage">Less than 2 GB free; the Debian image needs more space.</string>
     <string name="tune_note_page_size_warn">Unusual page size; native code may behave differently.</string>
-    <string name="diag_status_ready">Ready (device runtime required)</string>
     <string name="diag_status_runtime_required">Not yet verified on this device</string>
     <string name="diag_status_unsupported">Unsupported</string>
     <string name="session_empty">No sessions yet. Start one below.</string>
-    <string name="session_state">State</string>
+    <string name="session_count">Sessions</string>
+    <string name="session_state">State: %1$s</string>
+    <string name="session_chip">%1$s · %2$s</string>
+    <string name="session_created">Created</string>
+    <string name="session_exited">Exited</string>
+    <string name="session_failed">Failed</string>    <string name="terminal_empty">No session running. Start one on the left.</string>
+    <string name="find_no_matches">No matches</string>
+    <string name="find_above">Match is above the visible buffer (newest 300 lines).</string>
     <string name="status_ready">Ready</string>
     <string name="pass">PASS</string>
     <string name="fail">FAIL</string>
@@ -176,8 +168,6 @@
     <string name="tap_terminal_hint">Tap the terminal to show the keyboard.</string>
     <string name="find">Find</string>
     <string name="find_hint">Find in terminal</string>
-    <string name="find_prev">Previous match</string>
-    <string name="find_next">Next match</string>
     <string name="find_close">Close find</string>
     <string name="find_copy_line">Copy matching line</string>
     <string name="links">Links</string>
@@ -185,7 +175,6 @@
     <string name="links_empty">No links in the visible output.</string>
     <string name="link_open_failed">Could not open link: %1$s</string>
     <string name="split">Split</string>
-    <string name="split_second">Second pane</string>
     <string name="split_need_two">Open at least two sessions to split.</string>
     <string name="new_ssh">New SSH</string>
     <string name="ssh">SSH</string>
@@ -195,11 +184,14 @@
     <string name="ssh_user">Username</string>
     <string name="ssh_password">Password</string>
     <string name="ssh_key">Private key (optional)</string>
+    <string name="ssh_clear_key">Clear key</string>
+    <string name="ssh_port_range">Port must be 1–65535.</string>
+    <string name="ssh_key_too_large">Key file too large (64KB max).</string>
     <string name="ssh_key_none">No key selected</string>
     <string name="ssh_pick_key">Select key file</string>
     <string name="ssh_key_password">Key passphrase (if any)</string>
     <string name="ssh_connect">Connect</string>
-    <string name="ssh_invalid">Enter host, username, and a password or key.</string>
+    <string name="ssh_waiting_approval">Waiting for host-key approval…</string>    <string name="ssh_invalid">Enter host, username, and a password or key.</string>
     <string name="ssh_trust_title">Trust this host?</string>
     <string name="ssh_trust_message">%1$s:%2$d presents an unknown host key:\n%3$s</string>
     <string name="ssh_trust_once">Trust once</string>
@@ -207,4 +199,6 @@
     <string name="ssh_deny">Deny</string>
     <string name="ssh_denied">Host key rejected; connection cancelled.</string>
     <string name="ssh_failed">SSH failed: %1$s</string>
+    <string name="inbox_full">Too many pending shared files; try again in a moment.</string>
+    <string name="input_dropped">Terminal input dropped (%1$d bytes): the session is not draining.</string>
 </resources>

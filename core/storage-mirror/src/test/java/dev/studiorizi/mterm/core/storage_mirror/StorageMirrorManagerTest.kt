@@ -81,4 +81,31 @@ class StorageMirrorManagerTest {
         assertEquals("a.txt", entries[0].relativePath)
         assertEquals("abc", entries[1].sha256)
     }
+
+    @Test
+    fun journalSkipsCorruptLines() {
+        val mgr = StorageMirrorManager(tmp.root)
+        mgr.recordJournal("m1", SyncJournalEntry("a.txt", 3, 10L, null, "import", 1L))
+        val file = mgr.journalFile("m1")
+        file.appendText("THIS IS NOT JSON\n{\"incomplete\":\n\n")
+        mgr.recordJournal("m1", SyncJournalEntry("b.txt", 5, 20L, null, "import", 2L))
+        val entries = mgr.listJournal("m1")
+        assertEquals(listOf("a.txt", "b.txt"), entries.map { it.relativePath })
+    }
+
+    @Test
+    fun journalRotatesPastCap() {
+        val mgr = StorageMirrorManager(tmp.root)
+        val total = StorageMirrorManager.JOURNAL_MAX_LINES +
+            StorageMirrorManager.JOURNAL_ROTATE_SLACK + 10
+        for (i in 0 until total) {
+            mgr.recordJournal("m1", SyncJournalEntry("f$i.txt", i.toLong(), i.toLong(), null, "import", i.toLong()))
+        }
+        val entries = mgr.listJournal("m1")
+        // Rotation trims to the cap when crossed, then appends resume:
+        // bounded well under the untrimmed total, newest entry intact.
+        assertTrue(entries.size < total)
+        assertTrue(entries.size <= StorageMirrorManager.JOURNAL_MAX_LINES + StorageMirrorManager.JOURNAL_ROTATE_SLACK)
+        assertEquals("f${total - 1}.txt", entries.last().relativePath)
+    }
 }

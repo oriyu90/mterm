@@ -79,7 +79,12 @@ class TerminalSessionHostTest {
             listOf("/system/bin/sh", "-i"),
             emptyMap(),
         ).getOrThrow()
-        // Unconfined scope: startSession + EOF reap complete synchronously.
+        // Unconfined scope: startSession completes synchronously; the reader
+        // runs on Dispatchers.IO so EOF reap is asynchronous — poll for it.
+        val deadline = System.currentTimeMillis() + 10_000
+        while (manager.get(id) != null && System.currentTimeMillis() < deadline) {
+            Thread.sleep(20)
+        }
         // EOF + wait(0): session is reaped and removed; supervisor unregistered.
         assertTrue(manager.get(id) == null)
         assertEquals(null, host.lastFailure.value)

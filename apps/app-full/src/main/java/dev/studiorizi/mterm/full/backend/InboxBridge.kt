@@ -60,6 +60,19 @@ object InboxBridge {
             }
         }
 
+    /**
+     * Trims the inbox to the newest [INBOX_MAX_FILES] files so repeated
+     * shares don't fill app storage silently.
+     */
+    fun prune(context: Context) {
+        try {
+            val inbox = File(context.filesDir, "shared/inbox")
+            val files = inbox.listFiles()?.sortedByDescending { it.lastModified() }.orEmpty()
+            files.drop(INBOX_MAX_FILES).forEach { runCatching { it.delete() } }
+        } catch (_: Exception) {
+        }
+    }
+
     private fun displayName(context: Context, uri: Uri): String? {
         return try {
             context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
@@ -81,4 +94,6 @@ object InboxBridge {
     }
 
     const val MAX_BYTES = 32L * 1024 * 1024
+
+    const val INBOX_MAX_FILES = 32
 }

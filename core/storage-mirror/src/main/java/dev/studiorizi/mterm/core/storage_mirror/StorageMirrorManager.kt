@@ -48,28 +48,57 @@ class StorageMirrorManager(private val mirrorRoot: File) {
         return null
     }
 
-    /** Appends one JSON line to the mount journal, creating directories. */
+    /** Appends one JSON line to the mount journal, rotating past the cap. */
     fun recordJournal(mountId: String, entry: SyncJournalEntry) {
         val file = journalFile(mountId)
         file.parentFile?.mkdirs()
         file.appendText(json.encodeToString(SyncJournalEntry.serializer(), entry) + "\n")
+        rotateJournal(file)
     }
 
+    /**
+     * Reads the mount journal, skipping corrupt lines (one bad line must
+     * not lose the whole sync history).
+     */
     fun listJournal(mountId: String): List<SyncJournalEntry> {
         val file = journalFile(mountId)
         if (!file.exists()) return emptyList()
-        return file.readLines().mapNotNull { line ->
-            val trimmed = line.trim()
-            if (trimmed.isEmpty()) {
-                null
-            } else {
-                json.decodeFromString(SyncJournalEntry.serializer(), trimmed)
+        return try {
+            file.bufferedReader().useLines { lines ->
+                lines.mapNotNull { line ->
+                    val trimmed = line.trim()
+                    if (trimmed.isEmpty()) {
+                        null
+                    } else {
+                        try {
+                            json.decodeFromString(SyncJournalEntry.serializer(), trimmed)
+                        } catch (_: Exception) {
+                            null
+                        }
+                    }
+                }.toList()
             }
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 
-    private fun requireValidMountId(mountId: String) {
-        require(mountId.isNotEmpty()) { "empty mountId" }
+    /**
+     * Trims the journal to the newest [JOURNAL_MAX_LINES] lines so repeated
+     * syncs don't grow it (and its parse cost) without bound.
+     */
+    private fun rotateJournal(file: File) {
+        try {
+            val lines = file.readLines()
+            if (lines.size > JOURNAL_MAX_LINES + JOURNAL_ROTATE_SLACK) {
+                file.writeText(lines.takeLast(JOURNAL_MAX_LINES).joinToString("\n", postfix = "\n"))
+            }
+        } catch (_: Exception) {
+            // Journal hygiene is best-effort; sync results don't depend on it.
+        }
+    }
+
+    private fun requireValidMountId(mountId: String) {        require(mountId.isNotEmpty()) { "empty mountId" }
         require(!mountId.contains('\u0000')) { "NUL byte in mountId" }
         require(!mountId.contains('/') && !mountId.contains('\\')) { "mountId must not contain separators" }
         require(mountId != "." && mountId != "..") { "invalid mountId: $mountId" }
@@ -78,5 +107,11 @@ class StorageMirrorManager(private val mirrorRoot: File) {
     companion object {
         const val MIRROR_DIR = "mirror"
         const val JOURNAL_NAME = "sync.journal.jsonl"
+
+        /** Newest lines retained by rotation. */
+        const val JOURNAL_MAX_LINES = 500
+
+        /** Rotate only past cap+slack to avoid rewriting on every record. */
+        const val JOURNAL_ROTATE_SLACK = 100
     }
 }

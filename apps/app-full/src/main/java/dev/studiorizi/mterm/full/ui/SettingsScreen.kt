@@ -200,6 +200,8 @@ fun SettingsScreen() {
             stringResource(R.string.battery_title),
             style = MaterialTheme.typography.titleMedium,
         )
+        Spacer(Modifier.height(8.dp))
+        BatterySection()
         val applied = lastTune.ifEmpty { null }
         tuneReport?.let { report ->
             Spacer(Modifier.height(8.dp))

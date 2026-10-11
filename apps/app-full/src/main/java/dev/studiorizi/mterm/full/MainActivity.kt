@@ -39,10 +39,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -59,6 +61,9 @@ import androidx.navigation.compose.rememberNavController
 import dev.studiorizi.mterm.core.data.MTermPrefs
 import dev.studiorizi.mterm.core.terminal_emulator.TerminalSearch
 import dev.studiorizi.mterm.core.terminal_session.TerminalKeyEncoder
+import dev.studiorizi.mterm.full.ui.renderedFrom
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import dev.studiorizi.mterm.full.ui.AppTheme
 import dev.studiorizi.mterm.full.ui.DiagnosticsScreen
 import dev.studiorizi.mterm.full.ui.LinuxSetupScreen
@@ -138,7 +143,9 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         if (intent.action == Intent.ACTION_VIEW) {
             intent.data?.let { uri ->
-                InboxBridge.pending.trySend(uri)
+                if (InboxBridge.pending.trySend(uri).isFailure) {
+                    terminalViewModel.postError(getString(R.string.inbox_full))
+                }
             }
         }
     }
@@ -182,11 +189,14 @@ private fun MTermRoot(
     // then a Debian session opens so the guest can use them at /mnt/shared.
     LaunchedEffect(Unit) {
         activity?.intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data?.let { uri ->
-            InboxBridge.pending.trySend(uri)
+            if (InboxBridge.pending.trySend(uri).isFailure) {
+                vm.postError(context.getString(R.string.inbox_full))
+            }
             activity.intent = Intent()
         }
         for (uri in InboxBridge.pending) {
             val imported = InboxBridge.importViewed(context.applicationContext, uri)
+            InboxBridge.prune(context.applicationContext)
             imported.fold(
                 onSuccess = {
                     vm.newDebianProot(context)
@@ -230,18 +240,17 @@ private fun MTermRoot(
             composable("home") {
                 // Single source of truth for the selected tab: both panes
                 // follow it (previously each kept its own and could diverge).
+                // Navigation state (not secrets) survives rotation.
                 val sessions by vm.sessions.collectAsState()
-                var selectedTab by remember { mutableStateOf<String?>(null) }
+                var selectedTab by rememberSaveable { mutableStateOf<String?>(null) }
                 // Second visible session for split view (null = single pane).
-                var splitId by remember { mutableStateOf<String?>(null) }
+                var splitId by rememberSaveable { mutableStateOf<String?>(null) }
                 // SSH connect dialog.
                 var sshOpen by remember { mutableStateOf(false) }
                 val ids = sessions.keys
                 val selectedId =
                     if (selectedTab != null && selectedTab in ids) selectedTab
                     else ids.firstOrNull()
-                // Drop the split when its session closes or equals primary.
-                val activeSplit = splitId?.takeIf { it in ids && it != selectedId }
                 if (sideBySide) {
                     Row(modifier = Modifier.fillMaxSize()) {
                         Box(modifier = Modifier.weight(1f)) {
@@ -261,7 +270,7 @@ private fun MTermRoot(
                         Box(modifier = Modifier.weight(1f)) {
                             SessionDetailPane(
                                 vm, termHeight, palette, gutter, selectedId,
-                                splitId = activeSplit,
+                                splitId = splitId,
                                 onSplitChange = { splitId = it },
                             )
                         }
@@ -282,7 +291,7 @@ private fun MTermRoot(
                         )
                         SessionDetailPane(
                             vm, termHeight, palette, gutter, selectedId,
-                            splitId = activeSplit,
+                            splitId = splitId,
                             onSplitChange = { splitId = it },
                         )
                     }
@@ -358,7 +367,15 @@ private fun SessionListPane(
                     TFilterChip(
                         selected = selected == runtime.spec.id,
                         onClick = { onSelect(runtime.spec.id) },
-                        label = { Text("${runtime.spec.title} · ${state.name}") },
+                        label = {
+                            Text(
+                                stringResource(
+                                    R.string.session_chip,
+                                    runtime.spec.title,
+                                    sessionStateText(state),
+                                ),
+                            )
+                        },
                     )
                 }
             }
@@ -366,14 +383,14 @@ private fun SessionListPane(
         Spacer(Modifier.height(12.dp))
         val selectedState = selected?.let { sessions[it]?.state?.collectAsState()?.value }
         Text(
-            stringResource(R.string.session_state) + ": " +
-                (selectedState?.name ?: "-"),
+            stringResource(R.string.session_state, selectedState?.let { sessionStateText(it) } ?: "-"),
             style = MaterialTheme.typography.bodySmall,
         )
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TButton(
                 onClick = { selected?.let { onClose(it) } },
+                enabled = selected != null,
             ) {
                 Text(stringResource(R.string.close_selected))
             }
@@ -413,14 +430,56 @@ private fun SessionListPane(
         }
         vm.lastError.collectAsState().value?.let { error ->
             Spacer(Modifier.height(8.dp))
-            Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f),
+                )
+                TFilterChip(
+                    selected = false,
+                    onClick = { vm.clearError() },
+                    label = { Text(stringResource(R.string.dismiss)) },
+                )
+            }
         }
         vm.lastExit.collectAsState().value?.let { exit ->
             Spacer(Modifier.height(8.dp))
-            Text(exit, style = MaterialTheme.typography.bodySmall)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    exit,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f),
+                )
+                TFilterChip(
+                    selected = false,
+                    onClick = { vm.clearExit() },
+                    label = { Text(stringResource(R.string.dismiss)) },
+                )
+            }
         }
     }
 }
+
+/** Localized session lifecycle state (never a raw enum name). */
+@Composable
+private fun sessionStateText(state: dev.studiorizi.mterm.core.session_core.SessionState): String =
+    stringResource(
+        when (state) {
+            dev.studiorizi.mterm.core.session_core.SessionState.CREATED -> R.string.session_created
+            dev.studiorizi.mterm.core.session_core.SessionState.STARTING -> R.string.session_starting
+            dev.studiorizi.mterm.core.session_core.SessionState.RUNNING -> R.string.session_running
+            dev.studiorizi.mterm.core.session_core.SessionState.EXITED -> R.string.session_exited
+            dev.studiorizi.mterm.core.session_core.SessionState.FAILED -> R.string.session_failed
+        },
+    )
 
 @Composable
 private fun SessionDetailPane(
@@ -455,16 +514,19 @@ private fun SessionDetailPane(
             focused = true,
             withExtraKeys = true,
         )
+        // splitId here is the RAW stored id (may be stale); SplitRow
+        // filters it so the single-session hint stays reachable.
         SplitRow(
             sessions = sessions,
             primaryId = sessionId,
             splitId = splitId,
             onSplitChange = onSplitChange,
         )
-        if (splitId != null) {
+        val activeSplit = splitId?.takeIf { it in sessions.keys && it != sessionId }
+        if (activeSplit != null) {
             TerminalCard(
                 vm = vm,
-                sessionId = splitId,
+                sessionId = activeSplit,
                 termHeight = termHeight / 2,
                 palette = palette,
                 fontSizeSp = fontSize,
@@ -475,7 +537,7 @@ private fun SessionDetailPane(
                 withExtraKeys = false,
             )
         }
-        StatusCards(sessions.size, vm.processCount())
+        StatusCards(vm)
     }
 }
 
@@ -538,14 +600,26 @@ private fun TerminalCard(
 
     var ctrlLatch by remember(sessionId) { mutableStateOf(false) }
     var altLatch by remember(sessionId) { mutableStateOf(false) }
-    var searchOpen by remember(sessionId) { mutableStateOf(false) }
-    var query by remember(sessionId) { mutableStateOf("") }
+    var searchOpen by rememberSaveable(sessionId) { mutableStateOf(false) }
+    var query by rememberSaveable(sessionId) { mutableStateOf("") }
     var currentIdx by remember(sessionId) { mutableStateOf(0) }
     var revealSeq by remember(sessionId) { mutableStateOf(0) }
     var linksOpen by remember(sessionId) { mutableStateOf(false) }
 
     val emu = sessionId?.let { vm.emulator(it) }
-    val hits = remember(tick, emu, query, searchOpen) {
+    val sessions by vm.sessions.collectAsState()
+    val sessionState = sessionId?.let { sessions[it]?.state?.collectAsState()?.value }
+    val trustPending = vm.sshTrustRequests.collectAsState().value.isNotEmpty()
+    // Debounce output ticks: searching the full buffer on every PTY chunk
+    // janks under streaming output. Query edits recompute immediately.
+    var stableTick by remember(sessionId) { mutableStateOf(0L) }
+    LaunchedEffect(tick) {
+        if (searchOpen && query.isNotEmpty()) {
+            delay(400)
+            stableTick = tick
+        }
+    }
+    val hits = remember(stableTick, emu, query, searchOpen) {
         if (!searchOpen || query.isEmpty() || emu == null) {
             emptyList()
         } else {
@@ -555,6 +629,10 @@ private fun TerminalCard(
     LaunchedEffect(query, sessionId) { currentIdx = 0 }
     val clampedIdx = if (hits.isEmpty()) 0 else currentIdx.coerceIn(0, hits.size - 1)
     val current = hits.getOrNull(clampedIdx)
+    // Matches older than the rendered window can't highlight: tell the user
+    // instead of silently not moving.
+    val aboveBuffer = current != null && emu != null &&
+        current.line < renderedFrom(emu.scrollbackSize())
     val highlightMap = remember(hits) {
         hits.groupBy({ it.line }, { it.startCol until it.endCol })
     }
@@ -590,7 +668,13 @@ private fun TerminalCard(
                 FindBar(
                     query = query,
                     onQuery = { query = it },
-                    count = if (hits.isEmpty()) "0/0" else "${clampedIdx + 1}/${hits.size}",
+                    count = if (hits.isEmpty()) {
+                        stringResource(R.string.find_no_matches)
+                    } else {
+                        "${clampedIdx + 1}/${hits.size}"
+                    },
+                    aboveBuffer = aboveBuffer,
+                    copyEnabled = current != null,
                     onPrev = { go(clampedIdx - 1) },
                     onNext = { go(clampedIdx + 1) },
                     onCopyLine = {
@@ -607,14 +691,31 @@ private fun TerminalCard(
             Spacer(Modifier.height(8.dp))
             if (sessionId == null) {
                 Text(
-                    stringResource(R.string.diag_status_runtime_required),
+                    stringResource(R.string.terminal_empty),
                     style = MaterialTheme.typography.bodySmall,
                 )
             } else if (emu == null) {
-                Text(
-                    stringResource(R.string.session_finished),
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                if (sessionState == dev.studiorizi.mterm.core.session_core.SessionState.STARTING ||
+                    sessionState == dev.studiorizi.mterm.core.session_core.SessionState.CREATED
+                ) {
+                    androidx.compose.material3.LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        if (trustPending) {
+                            stringResource(R.string.ssh_waiting_approval)
+                        } else {
+                            stringResource(R.string.session_starting)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    Text(
+                        stringResource(R.string.session_finished),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             } else {
                 TerminalView(
                     emulator = emu,
@@ -668,6 +769,7 @@ private fun TerminalCard(
     if (linksOpen && sessionId != null) {
         LinksDialog(
             vm = vm,
+            sessionId = sessionId,
             tick = tick,
             onDismiss = { linksOpen = false },
         )
@@ -679,6 +781,8 @@ private fun FindBar(
     query: String,
     onQuery: (String) -> Unit,
     count: String,
+    aboveBuffer: Boolean,
+    copyEnabled: Boolean,
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onCopyLine: () -> Unit,
@@ -694,33 +798,51 @@ private fun FindBar(
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(count, style = MaterialTheme.typography.bodySmall)
-            TFilterChip(selected = false, onClick = onPrev, label = { Text("↑") })
-            TFilterChip(selected = false, onClick = onNext, label = { Text("↓") })
-            TFilterChip(selected = false, onClick = onCopyLine, label = { Text(stringResource(R.string.find_copy_line)) })
+            TFilterChip(
+                selected = false,
+                onClick = onPrev,
+                label = { Text("↑") },
+            )
+            TFilterChip(
+                selected = false,
+                onClick = onNext,
+                label = { Text("↓") },
+            )
+            TFilterChip(
+                selected = false,
+                enabled = copyEnabled,
+                onClick = onCopyLine,
+                label = { Text(stringResource(R.string.find_copy_line)) },
+            )
             TFilterChip(selected = false, onClick = onClose, label = { Text(stringResource(R.string.find_close)) })
+        }
+        if (aboveBuffer) {
+            Text(
+                stringResource(R.string.find_above),
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }
 
-/** URLs found in the session output; tap opens, ✎ copies. */
+/** URLs in one session's output; tap opens, Copy copies. */
 @Composable
 private fun LinksDialog(
     vm: TerminalViewModel,
+    sessionId: String,
     tick: Long,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    // tick is read so the list follows output while open.
-    @Suppress("UNUSED_EXPRESSION")
-    tick.coerceAtLeast(0)
-    val urls = remember(tick) {
-        // The dialog sits above the card that owns the session; re-resolve
-        // the visible session through the single selection is overkill —
-        // scan every live emulator and merge (deduped, capped).
-        vm.sessions.value.keys.flatMap { id ->
-            val emu = vm.emulator(id) ?: return@flatMap emptyList<String>()
-            TerminalSearch.urlsInEmulator(emu).map { it.url }
-        }.distinct().take(30)
+    // Debounced while open: a full snapshot+regex per output chunk janks.
+    var stableTick by remember(sessionId) { mutableStateOf(0L) }
+    LaunchedEffect(tick) {
+        delay(500)
+        stableTick = tick
+    }
+    val urls = remember(stableTick, sessionId) {
+        val emu = vm.emulator(sessionId) ?: return@remember emptyList()
+        TerminalSearch.urlsInEmulator(emu).map { it.url }.distinct().take(30)
     }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
@@ -803,6 +925,7 @@ private fun SshDialog(
     onConnected: (String) -> Unit,
 ) {
     val context = LocalContext.current
+    val dialogScope = rememberCoroutineScope()
     var host by remember { mutableStateOf("") }
     var portText by remember { mutableStateOf("22") }
     var user by remember { mutableStateOf("") }
@@ -810,32 +933,54 @@ private fun SshDialog(
     var keyName by remember { mutableStateOf<String?>(null) }
     var keyBytes by remember { mutableStateOf<ByteArray?>(null) }
     var keyPassphrase by remember { mutableStateOf("") }
+    var localError by remember { mutableStateOf<String?>(null) }
+    // Dismissing must not retain secrets: zero the key bytes (Strings are
+    // unzeroable by design — documented limitation, GC'd on dismiss).
+    fun wipeAndDismiss() {
+        keyBytes?.fill(0)
+        keyBytes = null
+        password = ""
+        keyPassphrase = ""
+        onDismiss()
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            keyBytes?.fill(0)
+        }
+    }
     val keyPicker = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        try {
-            context.contentResolver.openInputStream(uri)?.use { stream ->
-                val bytes = stream.readBytes()
-                if (bytes.size > MAX_SSH_KEY_BYTES) {
-                    vm.postError(context.getString(R.string.ssh_invalid))
-                    return@rememberLauncherForActivityResult
+        dialogScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val bytes = stream.readBytes()
+                    if (bytes.size > MAX_SSH_KEY_BYTES) {
+                        bytes.fill(0)
+                        localError = context.getString(R.string.ssh_key_too_large)
+                        return@launch
+                    }
+                    keyBytes?.fill(0)
+                    keyBytes = bytes
+                    keyName = uri.lastPathSegment?.substringAfterLast('/') ?: "key"
+                    localError = null
                 }
-                keyBytes = bytes
-                keyName = uri.lastPathSegment?.substringAfterLast('/') ?: "key"
+            } catch (_: Exception) {
+                localError = context.getString(R.string.ssh_invalid)
             }
-        } catch (_: Exception) {
-            vm.postError(context.getString(R.string.ssh_invalid))
         }
     }
     androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { wipeAndDismiss() },
         title = { Text(stringResource(R.string.ssh_title)) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                val port = portText.toIntOrNull()
+                val portBad = port == null || port !in 1..65535
                 androidx.compose.material3.TextField(
                     value = host,
                     onValueChange = { host = it },
@@ -885,6 +1030,18 @@ private fun SshDialog(
                         onClick = { keyPicker.launch(arrayOf("*/*")) },
                         label = { Text(stringResource(R.string.ssh_pick_key)) },
                     )
+                    if (keyBytes != null) {
+                        TFilterChip(
+                            selected = false,
+                            onClick = {
+                                keyBytes?.fill(0)
+                                keyBytes = null
+                                keyName = null
+                                keyPassphrase = ""
+                            },
+                            label = { Text(stringResource(R.string.ssh_clear_key)) },
+                        )
+                    }
                 }
                 if (keyBytes != null) {
                     androidx.compose.material3.TextField(
@@ -897,6 +1054,20 @@ private fun SshDialog(
                             keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
                         ),
                         modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                localError?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                if (portBad && portText.isNotEmpty()) {
+                    Text(
+                        stringResource(R.string.ssh_port_range),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
                     )
                 }
             }
@@ -914,18 +1085,26 @@ private fun SshDialog(
                         keyPem = keyBytes,
                         keyPassphrase = keyPassphrase.takeIf { it.isNotEmpty() }?.toCharArray(),
                     )
-                    // Drop dialog-local secret copies immediately.
+                    // Drop dialog-local secret copies immediately. The store
+                    // owns wiping its buffers after auth; also surface a
+                    // validation failure inside the dialog (the list-pane
+                    // banner hides behind the modal).
                     password = ""
                     keyPassphrase = ""
+                    keyBytes?.fill(0)
                     keyBytes = null
-                    if (id != null) onConnected(id)
+                    if (id != null) {
+                        onConnected(id)
+                    } else {
+                        localError = vm.lastError.value
+                    }
                 },
             ) {
                 Text(stringResource(R.string.ssh_connect))
             }
         },
         dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) {
+            androidx.compose.material3.TextButton(onClick = { wipeAndDismiss() }) {
                 Text(stringResource(R.string.cancel))
             }
         },
@@ -938,9 +1117,28 @@ private fun SshTrustDialog(
     vm: TerminalViewModel,
     req: dev.studiorizi.mterm.full.backend.ssh.SshTrust.Request,
 ) {
+    // Back means "do not trust": swallowing it would trap the user with a
+    // 120s waiter holding an sshj thread.
+    androidx.activity.compose.BackHandler {
+        vm.decideSshTrust(
+            req.id,
+            dev.studiorizi.mterm.full.backend.ssh.SshTrust.Decision.DENY,
+        )
+    }
+    val pendingCount = vm.sshTrustRequests.collectAsState().value.size
     androidx.compose.material3.AlertDialog(
-        onDismissRequest = { /* must choose */ },
-        title = { Text(stringResource(R.string.ssh_trust_title)) },
+        onDismissRequest = {
+            vm.decideSshTrust(
+                req.id,
+                dev.studiorizi.mterm.full.backend.ssh.SshTrust.Decision.DENY,
+            )
+        },
+        title = {
+            Text(
+                stringResource(R.string.ssh_trust_title) +
+                    if (pendingCount > 1) " (${pendingCount})" else "",
+            )
+        },
         text = {
             Text(stringResource(R.string.ssh_trust_message, req.host, req.port, req.fingerprint))
         },
@@ -1020,13 +1218,31 @@ private fun ExtraKeysRow(
 }
 
 @Composable
-private fun StatusCards(sessionCount: Int, processCount: Int) {
+private fun StatusCards(vm: TerminalViewModel) {
+    val context = LocalContext.current
+    val sessions by vm.sessions.collectAsState()
+    val tick by vm.tick.collectAsState()
+    // tick is read so the counts follow session/process changes live.
+    @Suppress("UNUSED_EXPRESSION")
+    tick.coerceAtLeast(0)
+    val rootOk = vm.rootChrootSupported.collectAsState().value == true
+    val debianReady = remember(tick, sessions) {
+        dev.studiorizi.mterm.full.backend.LinuxPaths.rootfsDir(context.applicationContext.filesDir).isDirectory
+    }
     val cards = listOf(
         stringResource(R.string.android_shell) to stringResource(R.string.status_ready),
-        stringResource(R.string.debian) to stringResource(R.string.diag_status_runtime_required),
-        stringResource(R.string.root_chroot) to stringResource(R.string.diag_status_unsupported),
-        stringResource(R.string.diagnostics) to "$sessionCount",
-        stringResource(R.string.diag_process_count) to "$processCount",
+        stringResource(R.string.debian) to if (debianReady) {
+            stringResource(R.string.status_ready)
+        } else {
+            stringResource(R.string.diag_status_runtime_required)
+        },
+        stringResource(R.string.root_chroot) to if (rootOk) {
+            stringResource(R.string.status_ready)
+        } else {
+            stringResource(R.string.diag_status_unsupported)
+        },
+        stringResource(R.string.session_count) to "${sessions.size}",
+        stringResource(R.string.diag_process_count) to "${vm.processCount()}",
     )
     cards.forEach { (title, status) ->
         TCard(modifier = Modifier.fillMaxWidth()) {

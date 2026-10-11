@@ -1,7 +1,9 @@
 package dev.studiorizi.mterm.full.ui
 
 import android.os.Build
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -12,6 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,8 +54,9 @@ fun DiagnosticsScreen(viewModel: TerminalViewModel) {
     var netValue by remember { mutableStateOf<String?>(null) }
     var freeValue by remember { mutableStateOf<String?>(null) }
     var bridgeResult by remember { mutableStateOf<String?>(null) }
+    var bridgeSeq by remember { mutableStateOf(0) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(bridgeSeq) {
         bridgeResult = viewModel.bridgePing()
     }
 
@@ -173,6 +177,16 @@ fun DiagnosticsScreen(viewModel: TerminalViewModel) {
             stringResource(R.string.saf_grants) + ": ${report.storageGrants}",
         )
         DiagRow(stringResource(R.string.diag_bridge), report.bridge)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TButton(onClick = { bridgeSeq++ }) {
+                Text(stringResource(R.string.retry))
+            }
+        }
+        val sessions by viewModel.sessions.collectAsState()
+        val sshCount = sessions.values.count {
+            it.spec.mode == dev.studiorizi.mterm.core.session_core.SessionMode.SSH
+        }
+        DiagRow(stringResource(R.string.ssh), "$sshCount")
         val batteryExempt = try {
             val pm = context.applicationContext.getSystemService(android.os.PowerManager::class.java)
             pm?.isIgnoringBatteryOptimizations(context.packageName)

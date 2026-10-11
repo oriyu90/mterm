@@ -81,6 +81,8 @@ object SshTrust {
         DENY,
     }
 
+    private const val POLL_MS = 250L
+
     private val _pending = MutableStateFlow<List<Request>>(emptyList())
     val pending: StateFlow<List<Request>> = _pending.asStateFlow()
 
@@ -91,13 +93,35 @@ object SshTrust {
      * Runs on sshj transport threads — never call from a coroutine that
      * must stay responsive.
      */
-    fun awaitDecision(host: String, port: Int, fingerprint: String, timeoutMs: Long): Decision {
+    fun awaitDecision(host: String, port: Int, fingerprint: String, timeoutMs: Long): Decision =
+        awaitDecision(host, port, fingerprint, timeoutMs) { false }
+
+    /**
+     * Cancellable variant: [isCancelled] is polled so a torn-down session
+     * (stopAll, service destroy) aborts the wait instead of holding an
+     * sshj thread for the full timeout.
+     */
+    fun awaitDecision(
+        host: String,
+        port: Int,
+        fingerprint: String,
+        timeoutMs: Long,
+        isCancelled: () -> Boolean,
+    ): Decision {
         val req = Request(UUID.randomUUID().toString(), host, port, fingerprint)
         val gate = java.util.concurrent.LinkedBlockingQueue<Decision>(1)
         gates[req.id] = gate
         _pending.update { it + req }
         return try {
-            gate.poll(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS) ?: Decision.DENY
+            var waited = 0L
+            var decision: Decision? = null
+            while (waited < timeoutMs && decision == null) {
+                if (isCancelled()) break
+                val slice = minOf(POLL_MS, timeoutMs - waited)
+                decision = gate.poll(slice, java.util.concurrent.TimeUnit.MILLISECONDS)
+                waited += slice
+            }
+            decision ?: Decision.DENY
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             Decision.DENY

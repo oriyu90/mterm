@@ -14,6 +14,7 @@ import java.io.File
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 
 /**
@@ -66,6 +67,7 @@ class SshBackend(
                     knownHostsFile = knownHostsFile,
                     rows = rows,
                     cols = cols,
+                    isCancelled = { coroutineContext[Job]?.isCancelled == true },
                 )
             } catch (e: SshFailure) {
                 SshEvents.errors.trySend(e.message ?: "ssh failed")

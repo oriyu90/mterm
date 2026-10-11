@@ -4,6 +4,8 @@ import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.nio.file.Files
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.apache.sshd.server.Environment
 import org.apache.sshd.server.ExitCallback
@@ -127,6 +129,42 @@ class SshConnectionTest {
         assertTrue(
             "SC provider registered",
             java.security.Security.getProvider("SC") != null,
+        )
+    }
+
+    @Test
+    fun `cancel during trust wait throws CancellationException fast`() = runBlocking {
+        val knownHosts = File(tmp, "known_hosts_cancel")
+        var result: Throwable? = null
+        var self: kotlinx.coroutines.Job? = null
+        val job = launch(kotlinx.coroutines.Dispatchers.IO) {
+            self = coroutineContext[kotlinx.coroutines.Job]
+            try {
+                SshConnection.connect(
+                    "127.0.0.1", port, "tester",
+                    ResolvedAuth.Password("secret".toCharArray()),
+                    knownHosts, 24, 80,
+                    isCancelled = { self?.isCancelled == true },
+                )
+            } catch (e: Throwable) {
+                result = e
+            }
+        }
+        // Let the trust prompt post, then cancel (nobody approves).
+        val deadline = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < deadline &&
+            SshTrust.pending.value.none { it.port == port }
+        ) {
+            kotlinx.coroutines.delay(50)
+        }
+        assertTrue("trust prompt posted", SshTrust.pending.value.any { it.port == port })
+        // Fails the test (30s+) if cancellation doesn't propagate.
+        kotlinx.coroutines.withTimeout(20_000) {
+            job.cancelAndJoin()
+        }
+        assertTrue(
+            "expected CancellationException, got $result",
+            result is kotlinx.coroutines.CancellationException,
         )
     }
 

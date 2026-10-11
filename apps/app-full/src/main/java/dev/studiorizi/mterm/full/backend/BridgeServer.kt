@@ -57,6 +57,13 @@ class BridgeServer(
         fun guestEnvSock(uid: Int = Process.myUid()): String = "@" + socketName(uid)
 
         const val CHANNEL_ID = "bridge"
+
+        /** Max concurrent bridge clients (accept thread never blocks). */
+        const val MAX_CLIENTS = 8
+
+        /** Stable notification IDs per method (no shade pile-up). */
+        const val NOTIF_ID_NOTIFY = 2001
+        const val NOTIF_ID_OPEN = 2002
     }
 
     fun isRunning(): Boolean = running.get()
@@ -84,6 +91,10 @@ class BridgeServer(
     }
 
     private fun acceptLoop(sock: LocalServerSocket) {
+        // One daemon thread per connection (capped): a guest holding a
+        // partial frame must not stall other bridge clients behind the
+        // 10s socket timeout.
+        val permits = java.util.concurrent.Semaphore(MAX_CLIENTS)
         while (running.get()) {
             val conn = try {
                 sock.accept()
@@ -91,14 +102,24 @@ class BridgeServer(
                 break
             } ?: break
 
-            try {
-                conn.soTimeout = 10_000
-                handle(conn)
-            } catch (_: Exception) {
-            } finally {
+            if (!permits.tryAcquire()) {
                 try {
                     conn.close()
                 } catch (_: IOException) {
+                }
+                continue
+            }
+            thread(name = "bridge-client", isDaemon = true) {
+                try {
+                    conn.soTimeout = 10_000
+                    handle(conn)
+                } catch (_: Exception) {
+                } finally {
+                    permits.release()
+                    try {
+                        conn.close()
+                    } catch (_: IOException) {
+                    }
                 }
             }
         }
@@ -162,7 +183,7 @@ class BridgeServer(
             BridgeMethods.NOTIFICATION_SHOW -> {
                 val title = (req.params["title"] ?: "mterm").take(120)
                 val body = (req.params["body"] ?: "").take(500)
-                postNotification(title, body, null, req.id.hashCode())
+                postNotification(title, body, null, NOTIF_ID_NOTIFY)
                 BridgeResponse(req.id, true, result = "posted")
             }
             BridgeMethods.CLIPBOARD_COPY -> {
@@ -193,11 +214,11 @@ class BridgeServer(
                     url.take(200),
                     PendingIntent.getActivity(
                         appContext,
-                        req.id.hashCode(),
+                        NOTIF_ID_OPEN,
                         intent,
                         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
                     ),
-                    req.id.hashCode(),
+                    NOTIF_ID_OPEN,
                 )
                 BridgeResponse(req.id, true, result = "notified")
             }
@@ -222,11 +243,11 @@ class BridgeServer(
                     guest.take(200),
                     PendingIntent.getActivity(
                         appContext,
-                        req.id.hashCode(),
+                        NOTIF_ID_OPEN,
                         intent,
                         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
                     ),
-                    req.id.hashCode(),
+                    NOTIF_ID_OPEN,
                 )
                 BridgeResponse(req.id, true, result = "notified")
             }

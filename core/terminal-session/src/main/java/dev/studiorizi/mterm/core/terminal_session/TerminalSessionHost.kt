@@ -33,11 +33,20 @@ import dev.studiorizi.mterm.core.session_core.UnixSignal
 import dev.studiorizi.mterm.core.terminal_emulator.TerminalEmulator
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -65,6 +74,18 @@ class TerminalSessionHost(
     private val _lastExitCode = MutableStateFlow<Int?>(null)
     val lastExitCode: StateFlow<Int?> = _lastExitCode.asStateFlow()
 
+    /**
+     * Set once [shutdown] runs. New sessions are refused afterwards, and a
+     * spawn that completes after teardown is reaped immediately instead of
+     * resurrecting a session nobody owns.
+     */
+    private val closed = AtomicBoolean(false)
+
+    private val _droppedInput = MutableStateFlow(0L)
+
+    /** Total input bytes dropped because a session's write queue was full. */
+    val droppedInput: StateFlow<Long> = _droppedInput.asStateFlow()
+
     /** Live sessions (finished ones are removed so the map drains to empty). */
     val sessions: StateFlow<Map<String, SessionRuntime>> = manager.sessions
 
@@ -86,6 +107,9 @@ class TerminalSessionHost(
         cols: Int = DEFAULT_COLS,
         scrollback: Int = defaultScrollback,
     ): Result<String> {
+        if (closed.get()) {
+            return Result.failure(IllegalStateException("session host is closed"))
+        }
         val spec = SessionSpec(
             id = UUID.randomUUID().toString(),
             mode = mode,
@@ -101,15 +125,23 @@ class TerminalSessionHost(
         _lastFailure.value = null
         emulators[spec.id] = TerminalEmulator(rows, cols, scrollback)
         scope.launch { startSession(spec.id, rows, cols) }
-        _renderTick.value++
+        _renderTick.update { it + 1 }
         return Result.success(spec.id)
     }
 
-    /** Queues raw input bytes to the session PTY, in order. */
+    /**
+     * Queues raw input bytes to the session PTY, in order. The queue is
+     * bounded ([WRITE_QUEUE]); when a stalled session can't drain, the
+     * oldest input is dropped and counted in [droppedInput] rather than
+     * growing memory without bound.
+     */
     fun write(sessionId: String, data: ByteArray, off: Int = 0, len: Int = data.size - off) {
         if (len <= 0) return
+        val channel = writers[sessionId] ?: return
         val copy = data.copyOfRange(off, off + len)
-        writers[sessionId]?.trySend(copy)
+        if (!channel.trySend(copy).isSuccess) {
+            _droppedInput.update { it + len }
+        }
     }
 
     /** Resizes the emulator immediately and the PTY asynchronously. */
@@ -160,22 +192,42 @@ class TerminalSessionHost(
     }
 
     /**
-     * Immediately terminates everything (service teardown). Signals the
-     * groups and closes PTYs; the reader coroutines reap and remove.
+     * Immediately terminates everything (service teardown). Signals all
+     * sessions, reaps them (wait before close, so no zombie), then removes
+     * them. Blocks the caller (bounded by [SHUTDOWN_REAP_MS] plus close);
+     * call only from teardown paths such as `Service.onDestroy`.
+     * Idempotent.
      */
     fun shutdown() {
-        manager.sessions.value.forEach { (id, runtime) ->
+        if (!closed.compareAndSet(false, true)) return
+        val snapshot = manager.sessions.value.toList()
+        snapshot.forEach { (_, runtime) ->
             try {
                 runtime.process?.signal(UnixSignal.SIGTERM)
             } catch (_: Throwable) {
                 // ignore
             }
-            try {
-                runtime.pty?.close()
-            } catch (_: Throwable) {
-                // ignore
+        }
+        kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+            kotlinx.coroutines.coroutineScope {
+                snapshot.map { (id, runtime) ->
+                    async {
+                        try {
+                            withTimeoutOrNull(SHUTDOWN_REAP_MS) {
+                                runtime.process?.wait()
+                            }
+                        } catch (_: Throwable) {
+                            // fall through to force-close below
+                        }
+                        try {
+                            runtime.process?.signal(UnixSignal.SIGKILL)
+                        } catch (_: Throwable) {
+                            // already gone
+                        }
+                        cleanup(id, manager.get(id)?.pty ?: runtime.pty)
+                    }
+                }.awaitAll()
             }
-            cleanup(id, runtime.pty)
         }
     }
 
@@ -194,15 +246,25 @@ class TerminalSessionHost(
             _lastFailure.value = (throwable as? SpawnException)?.failure
                 ?: SpawnFailure.BACKEND_UNSUPPORTED
             cleanup(id, manager.get(id)?.pty)
-            _renderTick.value++
+            _renderTick.update { it + 1 }
             return
         }
         val runtime = manager.get(id) ?: return
+        if (closed.get()) {
+            // Stopped while spawn was in flight: reap immediately instead of
+            // resurrecting a session nobody owns.
+            try {
+                runtime.process?.signal(UnixSignal.SIGTERM)
+            } catch (_: Throwable) {
+            }
+            cleanup(id, runtime.pty)
+            return
+        }
         val pty = runtime.pty ?: return
         val process = runtime.process ?: return
 
         // Ordered, non-interleaving writes.
-        val channel = Channel<ByteArray>(Channel.UNLIMITED)
+        val channel = Channel<ByteArray>(WRITE_QUEUE, onBufferOverflow = BufferOverflow.DROP_OLDEST)
         writers[id] = channel
         scope.launch(Dispatchers.IO) {
             for (bytes in channel) {
@@ -224,7 +286,9 @@ class TerminalSessionHost(
                 ),
             )
         }
-        readLoop(id, pty, process)
+        // Blocking reads must not park Dispatchers.Default threads (pool is
+        // CPU-sized; one thread would stall per session).
+        scope.launch(Dispatchers.IO) { readLoop(id, pty, process) }
     }
 
     private suspend fun readLoop(id: String, pty: PtyHandle, process: ProcessHandle) {
@@ -234,7 +298,7 @@ class TerminalSessionHost(
                 val n = pty.read(buffer)
                 if (n <= 0) break
                 emulators[id]?.write(buffer, 0, n)
-                _renderTick.value = _renderTick.value + 1
+                _renderTick.update { it + 1 }
             }
         } catch (_: Throwable) {
             // Fall through to reaping; a failed read is a normal end.
@@ -247,7 +311,7 @@ class TerminalSessionHost(
             if (process.pid > 0) supervisor.unregister(process.pid)
             _lastExitCode.value = exit
             cleanup(id, pty)
-            _renderTick.value++
+            _renderTick.update { it + 1 }
         }
     }
 
@@ -279,5 +343,11 @@ class TerminalSessionHost(
         const val GRACE_MS = 1_500L
         const val KILL_MS = 300L
         const val POLL_MS = 30L
+
+        /** Bounded per-session input queue (oldest dropped past capacity). */
+        const val WRITE_QUEUE = 512
+
+        /** Grace period per session for the async shutdown reaper. */
+        const val SHUTDOWN_REAP_MS = 2_500L
     }
 }

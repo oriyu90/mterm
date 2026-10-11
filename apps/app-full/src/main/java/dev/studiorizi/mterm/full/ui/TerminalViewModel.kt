@@ -27,6 +27,7 @@ import dev.studiorizi.mterm.full.service.TerminalService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.sample
 
 /**
  * Compose-facing holder for session use-cases.
@@ -62,47 +63,78 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private var bound = false
     private var bridgeServer: dev.studiorizi.mterm.full.backend.BridgeServer? = null
 
+    /** Service-flow collectors for the current bind; cancelled on unbind. */
+    private var flowJobs: List<kotlinx.coroutines.Job> = emptyList()
+    private var lastDroppedInput = 0L
+
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             val host = (binder as? TerminalService.LocalBinder)?.getHost() ?: return
             bridgeServer = (binder as? TerminalService.LocalBinder)?.getBridgeServer()
+            cancelFlowJobs()
             _host.value = host
             _sessions.value = host.sessions.value
             _tick.value = host.renderTick.value
-            _rootChrootSupported.value = checkRootChrootSupport()
+            lastDroppedInput = host.droppedInput.value
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                _rootChrootSupported.value = checkRootChrootSupport()
+            }
             // Mirror the service flows so the UI recomposes on every change.
-            viewModelScope.launch {
-                host.sessions.collect { _sessions.value = it }
-            }
-            viewModelScope.launch {
-                host.renderTick.collect { _tick.value = it }
-            }
-            viewModelScope.launch {
-                host.lastFailure.collect { failure ->
-                    if (failure != null) {
-                        _lastError.value = sshAwareMessage(failure)
-                        host.clearLastFailure()
+            // Ticks are sampled: the reader bumps per PTY chunk, but the UI
+            // only needs ~12fps (audit S4).
+            flowJobs = listOf(
+                viewModelScope.launch {
+                    host.sessions.collect { _sessions.value = it }
+                },
+                viewModelScope.launch {
+                    @kotlin.OptIn(kotlinx.coroutines.FlowPreview::class)
+                    host.renderTick.sample(80).collect { _tick.value = it }
+                },
+                viewModelScope.launch {
+                    host.lastFailure.collect { failure ->
+                        if (failure != null) {
+                            _lastError.value = sshAwareMessage(failure)
+                            host.clearLastFailure()
+                        }
                     }
-                }
-            }
-            viewModelScope.launch {
-                host.lastExitCode.collect { code ->
-                    if (code != null) {
-                        if (code != 0) {
-                            _lastExit.value = getApplication<Application>().getString(
-                                R.string.session_exited_code,
-                                code,
+                },
+                viewModelScope.launch {
+                    host.lastExitCode.collect { code ->
+                        if (code != null) {
+                            if (code != 0) {
+                                _lastExit.value = getApplication<Application>().getString(
+                                    R.string.session_exited_code,
+                                    code,
+                                )
+                            }
+                            host.clearLastExit()
+                        }
+                    }
+                },
+                viewModelScope.launch {
+                    host.droppedInput.collect { total ->
+                        val delta = total - lastDroppedInput
+                        if (delta > 0) {
+                            lastDroppedInput = total
+                            _lastError.value = getApplication<Application>().getString(
+                                R.string.input_dropped,
+                                delta,
                             )
                         }
-                        host.clearLastExit()
                     }
-                }
-            }
+                },
+            )
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
+            cancelFlowJobs()
             _host.value = null
         }
+    }
+
+    private fun cancelFlowJobs() {
+        flowJobs.forEach { it.cancel() }
+        flowJobs = emptyList()
     }
 
     init {
@@ -135,6 +167,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     fun unbind(context: Context) {
         if (!bound) return
         bound = false
+        cancelFlowJobs()
         try {
             context.unbindService(connection)
         } catch (_: IllegalArgumentException) {
@@ -157,6 +190,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun newAndroidShell(context: Context) {
         TerminalService.start(context)
+        clearStatus()
         // The host may not be bound yet on first launch; queue via bind retry.
         val host = _host.value
         if (host == null) {
@@ -175,6 +209,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun newDebianProot(context: Context) {
         TerminalService.start(context)
+        clearStatus()
         val host = _host.value
         if (host == null) {
             _lastError.value = context.getString(R.string.error_starting_retry)
@@ -195,6 +230,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             return
         }
         TerminalService.start(context)
+        clearStatus()
         val host = _host.value ?: run {
             _lastError.value = context.getString(R.string.error_starting_retry)
             return
@@ -302,6 +338,12 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun clearError() {
         _lastError.value = null
+    }
+
+    /** Clears sticky status banners (called when a new session starts). */
+    private fun clearStatus() {
+        _lastError.value = null
+        _lastExit.value = null
     }
 
     fun clearExit() {

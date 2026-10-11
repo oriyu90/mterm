@@ -147,9 +147,13 @@ data class SessionRuntime(
 )
 
 /**
- * Owns session lifecycle. All PTY-channel access is serialized through per-session
- * [Mutex]es via [withPty]; UI layers must go through here instead of calling
- * native handles directly.
+ * Owns session lifecycle.
+ *
+ * Note: the per-session write path goes through the ordered writer channels
+ * in `TerminalSessionHost`, not through [withPty]. [withPty] is reserved for
+ * future auxiliary writers (bridge macros); any new writer MUST either use
+ * [withPty] exclusively or stay on the channel path, never both, or bytes
+ * will interleave.
  */
 class SessionManager(
     private val backends: Map<SessionMode, ExecutionBackend>,
